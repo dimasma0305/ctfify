@@ -13,7 +13,8 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "ctfify",
 	Short: "Tools for downloading CTF challenges from various platforms.",
-	Long:  `ctfify is a powerful command-line tool for downloading and managing Capture The Flag (CTF) challenges. With ctfify, you can easily find and download challenges from various CTF platforms, and stay organized and focused on your CTF goals. Try it out and take your CTF experience to the next level!`,
+	Long: `ctfify is a command-line tool designed to simplify the process of downloading and managing Capture The Flag (CTF) challenges.
+With ctfify, you can easily search for CTF challenges by name, category, or tag, and download them directly to your local machine with just a few commands.`,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
