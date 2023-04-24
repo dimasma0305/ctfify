@@ -17,14 +17,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type getCmdFlags struct {
+var getFlag struct {
 	creds          creds.CredsStruct
 	verbose        bool
 	filterCategory string
 	onlySolved     bool
 }
-
-var getFlag getCmdFlags
 
 // getCmd represents the get command
 var getCmd = &cobra.Command{
