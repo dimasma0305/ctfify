@@ -27,17 +27,8 @@ type ChallengeFullInfo struct {
 
 var (
 	// TemplateFile is an embed.FS containing all template files for CTFd challenges.
-	//go:embed templates/*
+	//go:embed template/*
 	TemplateFile embed.FS
-
-	// ChallengeDir is the path to the directory where templates for challenge are stored.
-	ChallengeDir = "templates/challenge"
-
-	// TemplateGetDir is the path to the directory where templates for get are stored.
-	TemplateGetDir = "templates/templateGet"
-
-	// WriteupDir is the path to the directory where writeup templates are stored.
-	WriteupDir = "templates/writeup"
 )
 
 // Templater generates a template from a given source file and a ChallengeFullInfo struct.
@@ -95,6 +86,14 @@ func (cfi *ChallengeFullInfo) WriteTemplatesToDir(src string, dstFolder string) 
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// Same as WriteTemplatesToDir but use default directory `template`
+func (cfi *ChallengeFullInfo) WriteTemplatesToDirDefault(dstFolder string) error {
+	if err := cfi.WriteTemplatesToDir("template", dstFolder); err != nil {
+		return err
 	}
 	return nil
 }

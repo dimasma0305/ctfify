@@ -17,14 +17,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type getCmdArgs struct {
+type getCmdFlags struct {
 	creds          creds.CredsStruct
 	verbose        bool
 	filterCategory string
 	onlySolved     bool
 }
 
-var getFlag getCmdArgs
+var getFlag getCmdFlags
 
 // getCmd represents the get command
 var getCmd = &cobra.Command{
@@ -70,7 +70,7 @@ var getCmd = &cobra.Command{
 				if err != nil {
 					log.Fatal(err)
 				}
-				if err := fullInfo.WriteTemplatesToDir(ctfd.TemplateGetDir, dstFolder); err != nil {
+				if err := fullInfo.WriteTemplatesToDirDefault(dstFolder); err != nil {
 					log.Fatal(err)
 				}
 				if err := fullInfo.DownloadFilesToDir(filepath.Join(dstFolder, "attachment")); err != nil {
