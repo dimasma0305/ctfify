@@ -1,9 +1,11 @@
 package template
 
 import (
+	"bytes"
 	"embed"
-	"io"
 	"os"
+	"path/filepath"
+	"text/template"
 )
 
 var (
@@ -11,24 +13,21 @@ var (
 	TemplateFile embed.FS
 )
 
-type Options struct {
-	Pwn bool
-	res []byte
+func GetPwn() fileByte             { return templater("pwn.py", "") }
+func GetWriteup(info any) fileByte { return templater("writeup.md", info) }
+
+type fileByte []byte
+
+func templater(fsfile string, info any) fileByte {
+	var buf bytes.Buffer
+	fs, _ := template.ParseFS(TemplateFile, filepath.Join("templates", fsfile))
+	fs.Execute(&buf, info)
+	return buf.Bytes()
 }
 
-func Get(op *Options) *Options {
-	var res []byte
-	if op.Pwn {
-		fs, _ := TemplateFile.Open("templates/pwn.py")
-		res, _ = io.ReadAll(fs)
-		return &Options{res: res}
-	}
-	return nil
-}
-
-func (o *Options) WriteToFile(dstfile string) error {
+func (o fileByte) WriteToFile(dstfile string) error {
 	if _, err := os.Stat(dstfile); os.IsNotExist(err) {
-		if err := os.WriteFile(dstfile, o.res, 0644); err != nil {
+		if err := os.WriteFile(dstfile, []byte(o), 0644); err != nil {
 			return err
 		}
 	}
@@ -36,9 +35,9 @@ func (o *Options) WriteToFile(dstfile string) error {
 
 }
 
-func (o *Options) WriteToFileWithPermisionExecutable(dstfile string) error {
+func (o fileByte) WriteToFileWithPermisionExecutable(dstfile string) error {
 	if _, err := os.Stat(dstfile); os.IsNotExist(err) {
-		if err := os.WriteFile(dstfile, o.res, 0744); err != nil {
+		if err := os.WriteFile(dstfile, []byte(o), 0744); err != nil {
 			return err
 		}
 	}
