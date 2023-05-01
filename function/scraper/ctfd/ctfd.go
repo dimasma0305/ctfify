@@ -101,9 +101,9 @@ func (cs *ctfdScraper) getNonce() (*string, error) {
 }
 
 // get all challenges from /api/v1/challenges in ctfd platform
-func (cs *ctfdScraper) GetChallenges() (arrChallengeInfo, error) {
+func (cs *ctfdScraper) GetChallenges() (ChallengesInfo, error) {
 	var (
-		data arrChallengeInfo
+		data ChallengesInfo
 	)
 	res, err := cs.client.R().Get(cs.challengesUrl)
 	if err != nil {

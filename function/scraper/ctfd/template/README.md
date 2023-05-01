@@ -8,6 +8,7 @@ title: "{{.Name}} | Challenge"
 ===
 
 ## Description
+
 {{.Description}}
 {{if .Connection_Info}}
 Connection Info:
