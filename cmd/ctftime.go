@@ -48,6 +48,7 @@ func init() {
 					return false
 				})
 			}
+			// filter by title aka ctf name
 			if cmd.Flags().Changed("title") {
 				var title = cmd.Flag("title").Value.String()
 				events = events.Filter(func(chall *ctftime.Event) bool {
