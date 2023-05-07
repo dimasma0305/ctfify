@@ -27,3 +27,7 @@ func InfoH2(format string, elem ...any) {
 func InfoH3(format string, elem ...any) {
 	fmt.Println(color.YellowString("    [x] ") + fmt.Sprintf(format, elem...))
 }
+
+func SuccessDownload(challName string, challCategory string) {
+	Info("success downloading: %s (%s)", challName, challCategory)
+}
