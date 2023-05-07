@@ -49,4 +49,5 @@ func init() {
 	rootCmd.AddCommand(rctfCmd)
 	rctfCmd.Flags().StringP("url", "u", "", "url of the rctf platform")
 	rctfCmd.Flags().StringP("token", "t", "", "your token")
+	rctfCmd.Flags().String("url-token", "", "token url from ctf")
 }
