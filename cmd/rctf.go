@@ -16,18 +16,29 @@ var rctfCmd = &cobra.Command{
 	Use:   "rctf",
 	Short: "Download RCTF challenges from url",
 	Run: func(cmd *cobra.Command, args []string) {
-		url, err := cmd.Flags().GetString("url")
-		if err != nil {
-			log.Fatal(err)
+		var ctf *rctf.RCTFScraper
+		var err error
+		if cmd.Flag("url-token").Changed {
+			urlToken := cmd.Flag("url-token").Value.String()
+			ctf, err = rctf.InitFromUrlToken(urlToken)
+			if err != nil {
+				log.Fatal(err)
+			}
+		} else {
+			url, err := cmd.Flags().GetString("url")
+			if err != nil {
+				log.Fatal(err)
+			}
+			token, err := cmd.Flags().GetString("token")
+			if err != nil {
+				log.Fatal(err)
+			}
+			ctf, err = rctf.Init(url, token)
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
-		token, err := cmd.Flags().GetString("token")
-		if err != nil {
-			log.Fatal(err)
-		}
-		ctf, err := rctf.Init(url, token)
-		if err != nil {
-			log.Fatal(err)
-		}
+
 		challenges, err := ctf.GetChalls()
 		if err != nil {
 			log.Fatal(err)

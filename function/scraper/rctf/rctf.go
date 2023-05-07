@@ -1,6 +1,7 @@
 package rctf
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 
@@ -53,4 +54,16 @@ func Init(Url string, Token string) (*RCTFScraper, error) {
 		c:     client.SetCommonBearerAuthToken(data.Data.AuthToken),
 	}
 	return rctfScraper, nil
+}
+
+func InitFromUrlToken(Url string) (*RCTFScraper, error) {
+	rctfUrl, err := url.Parse(Url)
+	if err != nil {
+		return nil, err
+	}
+	token := rctfUrl.Query().Get("token")
+	if token == "" {
+		return nil, fmt.Errorf("token not found in the url")
+	}
+	return Init(rctfUrl.Scheme+"://"+rctfUrl.Hostname(), token)
 }
