@@ -37,6 +37,9 @@ var rctfCmd = &cobra.Command{
 			if err := challenge.WriteTemplatesToDirDefault(dstFolder); err != nil {
 				log.Fatal(err)
 			}
+			for _, file := range challenge.Files {
+				file.DowloadFileToDir(filepath.Join(dstFolder, "attachment"))
+			}
 			log.SuccessDownload(challenge.Name, challenge.Category)
 		}
 	},
