@@ -15,6 +15,7 @@ var (
 
 func GetPwn() fileByte             { return templater("pwn.py", "") }
 func GetWriteup(info any) fileByte { return templater("writeup.md", info) }
+func GetWeb() fileByte             { return templater("web.py", "") }
 
 type fileByte []byte
 

@@ -38,6 +38,10 @@ that i specialy crafted`,
 				WriteToFile("README.md"); err != nil {
 				log.Fatal(err)
 			}
+		case "web":
+			if err := template.GetWeb().WriteToFile("solve.py"); err != nil {
+				log.Fatal(err)
+			}
 		}
 	},
 }
@@ -54,6 +58,7 @@ func init() {
 		completions := map[string]string{
 			"writeup": "Template for writeup",
 			"pwn":     "Template for pwn",
+			"web":     "Template for web",
 		}
 		matches := make([]string, 0)
 		for c, d := range completions {
