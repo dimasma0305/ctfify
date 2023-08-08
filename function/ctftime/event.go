@@ -70,6 +70,31 @@ func (ca *ctftimeApi) GetEventsByDate(limit int, start string, finish string) (E
 	return res, nil
 }
 
+func (e *Event) EventDays() ([]int, error) {
+	startTime := ctftimeDateToTime(e.Start)
+	endTime := ctftimeDateToTime(e.Finish)
+	duration := endTime.Sub(startTime)
+	days := int(duration.Hours() / 24)
+	if int(duration.Hours())%24 > 0 {
+		days++
+	}
+	eventDays := make([]int, days)
+	for i := 0; i < days; i++ {
+		eventDays[i] = startTime.Add(time.Duration(i*24) * time.Hour).Day()
+	}
+	return eventDays, nil
+}
+
+// translate ctftime date to day
+func ctftimeDateToTime(timeStr string) time.Time {
+	layout := "2006-01-02T15:04:05-07:00"
+	t, err := time.Parse(layout, timeStr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return t
+}
+
 // transte date to timestamp
 func dateToTimestamp(dateString string) int {
 	layout := "January 2, 2006"

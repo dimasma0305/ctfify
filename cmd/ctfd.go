@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dimasma0305/ctfify/function/creds"
 	"github.com/dimasma0305/ctfify/function/log"
 	"github.com/dimasma0305/ctfify/function/scraper/ctfd"
 
@@ -17,24 +16,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var getFlag struct {
-	creds          creds.CredsStruct
-	verbose        bool
-	filterCategory string
-	onlySolved     bool
-}
-
-// getCmd represents the get command
-var getCmd = &cobra.Command{
-	Use:   "get",
+// ctfdCmd represents the get command
+var ctfdCmd = &cobra.Command{
+	Use:   "ctfd",
 	Short: "Download ctfd challenges from url",
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := getFlag.creds.Validate(); err != nil {
-			log.Fatal(err)
+		type Creds struct {
+			username string
+			password string
+			url      string
 		}
-		ctf, err := ctfd.Init(getFlag.creds.Url, &ctfd.Creds{
-			Username: getFlag.creds.Username,
-			Password: getFlag.creds.Password,
+		var (
+			creds = &Creds{
+				username: cmd.Flag("username").Value.String(),
+				password: cmd.Flag("password").Value.String(),
+				url:      cmd.Flag("url").Value.String(),
+			}
+		)
+
+		ctf, err := ctfd.Init(creds.url, &ctfd.Creds{
+			Username: creds.username,
+			Password: creds.password,
 		})
 		if err != nil {
 			log.Fatal(err)
@@ -47,12 +49,13 @@ var getCmd = &cobra.Command{
 		// filter category
 		if cmd.Flags().Lookup("filter-category").Changed {
 			challenges = challenges.Filter(func(chall *ctfd.ChallengeInfo) bool {
-				return strings.EqualFold(chall.Category, getFlag.filterCategory)
+				var filterCategory = cmd.Flag("filter-category").Value.String()
+				return strings.EqualFold(chall.Category, filterCategory)
 			})
 		}
 
 		// filter solved
-		if getFlag.onlySolved {
+		if onlySolved, _ := cmd.Flags().GetBool("only-solved"); onlySolved {
 			challenges = challenges.Filter(func(chall *ctfd.ChallengeInfo) bool {
 				return chall.Solved_By_Me
 			})
@@ -74,8 +77,8 @@ var getCmd = &cobra.Command{
 				if err := fullInfo.DownloadFilesToDir(filepath.Join(dstFolder, "attachment")); err != nil {
 					log.Fatal(err)
 				}
-				log.Info("success downloading: %s (%s)", challenge.Name, challenge.Category)
-				if getFlag.verbose {
+				log.SuccessDownload(challenge.Name, challenge.Category)
+				if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {
 					data, _ := prettyjson.Marshal(fullInfo)
 					fmt.Println(string(data))
 				}
@@ -86,13 +89,13 @@ var getCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(getCmd)
+	rootCmd.AddCommand(ctfdCmd)
 
-	getCmd.Flags().StringVarP(&getFlag.creds.Url, "url", "u", "", "CTF platform url to get")
-	getCmd.Flags().StringVarP(&getFlag.creds.Username, "username", "s", "", "Username")
-	getCmd.Flags().StringVarP(&getFlag.creds.Password, "password", "p", "", "Password")
-	getCmd.Flags().StringVarP(&getFlag.filterCategory, "filter-category", "c", "", "Filter challenge by category")
-	getCmd.Flags().BoolVarP(&getFlag.onlySolved, "only-solved", "o", false, "Filter challenge by category")
-	getCmd.Flags().BoolVarP(&getFlag.verbose, "verbose", "v", false, "Make the log more verbose")
+	ctfdCmd.Flags().StringP("url", "u", "", "CTF platform url to get")
+	ctfdCmd.Flags().StringP("username", "s", "", "Username")
+	ctfdCmd.Flags().StringP("password", "p", "", "Password")
+	ctfdCmd.Flags().StringP("filter-category", "c", "", "Filter challenge by category")
+	ctfdCmd.Flags().BoolP("only-solved", "o", false, "Filter challenge by category")
+	ctfdCmd.Flags().BoolP("verbose", "v", false, "Make the log more verbose")
 
 }

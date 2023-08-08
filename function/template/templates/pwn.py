@@ -3,7 +3,7 @@
 from pwn import *
 import sys
 
-BINARY = "binary"
+BINARY = "chall"
 context.binary = exe = ELF(BINARY, checksec=False)
 context.terminal = "konsole -e".split()
 context.log_level = "INFO"
@@ -26,14 +26,14 @@ class Exploit:
     def debug(self, script=None):
         if not args.RMT:
             if script:
-                attach(self.p, script)
+                attach(self.p, "\n".join(script))
             else:
                 attach(self.p)
 
-    def send(self, content):
-        p = self.p
-        p.sendlineafter(b"foooo....", content)
 
 x, p = init()
+x.debug((
+    "source /usr/share/pwngdb/.gdbinit",
+))
 
 p.interactive()

@@ -10,12 +10,13 @@ title: "{{.Name}} | Challenge"
 ## Description
 
 {{.Description}}
-{{if .Connection_Info}}
-Connection Info:
+{{if .Connection_Info}}Connection Info:
+
 :::info
 {{.Connection_Info}}
 :::
-{{end}}{{if .Files}}
-## Files
+
+{{end}}{{if .Files}}## Files
 {{range $_, $v := .Files}}- [{{$v.FileName}}](attachment/{{$v.FileName}})
+
 {{end}}{{end}}
