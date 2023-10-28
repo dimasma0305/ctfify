@@ -10,25 +10,29 @@ import (
 
 var (
 	//go:embed templates/*
-	TemplateFile embed.FS
+	File embed.FS
 )
 
-func GetPwn() fileByte             { return templater("pwn.py", "") }
-func GetWriteup(info any) fileByte { return templater("writeup.md", info) }
-func GetWeb() fileByte             { return templater("web.py", "") }
+func GetPwn() FileByte             { return templates("pwn.py", "") }
+func GetWriteup(info any) FileByte { return templates("writeup.md", info) }
+func GetWeb() FileByte             { return templates("web.py", "") }
+func GetWebPWN() FileByte          { return templates("webPwn.py", "") }
 
-type fileByte []byte
+type FileByte []byte
 
-func templater(fsfile string, info any) fileByte {
+func templates(file string, info any) FileByte {
 	var buf bytes.Buffer
-	fs, _ := template.ParseFS(TemplateFile, filepath.Join("templates", fsfile))
-	fs.Execute(&buf, info)
+	fs, _ := template.ParseFS(File, filepath.Join("templates", file))
+	err := fs.Execute(&buf, info)
+	if err != nil {
+		return nil
+	}
 	return buf.Bytes()
 }
 
-func (o fileByte) WriteToFile(dstfile string) error {
-	if _, err := os.Stat(dstfile); os.IsNotExist(err) {
-		if err := os.WriteFile(dstfile, []byte(o), 0644); err != nil {
+func (o FileByte) WriteToFile(destination string) error {
+	if _, err := os.Stat(destination); os.IsNotExist(err) {
+		if err := os.WriteFile(destination, []byte(o), 0644); err != nil {
 			return err
 		}
 	}
@@ -36,9 +40,9 @@ func (o fileByte) WriteToFile(dstfile string) error {
 
 }
 
-func (o fileByte) WriteToFileWithPermisionExecutable(dstfile string) error {
-	if _, err := os.Stat(dstfile); os.IsNotExist(err) {
-		if err := os.WriteFile(dstfile, []byte(o), 0744); err != nil {
+func (o FileByte) WriteToFileWithPermissionExecutable(destination string) error {
+	if _, err := os.Stat(destination); os.IsNotExist(err) {
+		if err := os.WriteFile(destination, []byte(o), 0744); err != nil {
 			return err
 		}
 	}
