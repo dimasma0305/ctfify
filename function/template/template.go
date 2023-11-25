@@ -17,6 +17,7 @@ func GetPwn() FileByte             { return templates("pwn.py", "") }
 func GetWriteup(info any) FileByte { return templates("writeup.md", info) }
 func GetWeb() FileByte             { return templates("web.py", "") }
 func GetWebPWN() FileByte          { return templates("webPwn.py", "") }
+func GetWeb3() FileByte            { return templates("web3.py", "") }
 
 type FileByte []byte
 

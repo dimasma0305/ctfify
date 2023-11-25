@@ -37,6 +37,10 @@ var category = map[string]info{
 		name: "pwn",
 		desc: "PWN",
 	},
+	"web3": {
+		name: "web3",
+		desc: "Web3",
+	},
 	"writeup": {
 		name: "writeup",
 		desc: "Writeup",
@@ -56,19 +60,27 @@ that i specialy crafted`,
 			if err := template.GetWriteup(addFlag).WriteToFile("README.md"); err != nil {
 				log.Fatal(err)
 			}
+			break
 		case category["pwn"].name:
-			if err := template.GetPwn().
-				WriteToFileWithPermissionExecutable("solve.py"); err != nil {
+			if err := template.GetPwn().WriteToFile("solve.py"); err != nil {
 				log.Fatal(err)
 			}
+			break
 		case category["web"].name:
 			if err := template.GetWeb().WriteToFile("solve.py"); err != nil {
 				log.Fatal(err)
 			}
+			break
 		case category["webPwn"].name:
 			if err := template.GetWebPWN().WriteToFile("solve.py"); err != nil {
 				log.Fatal(err)
 			}
+			break
+		case category["web3"].name:
+			if err := template.GetWeb3().WriteToFile("solve.py"); err != nil {
+				log.Fatal(err)
+			}
+			break
 		}
 	},
 }
