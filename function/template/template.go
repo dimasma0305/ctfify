@@ -3,6 +3,7 @@ package template
 import (
 	"bytes"
 	"embed"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"text/template"
@@ -48,4 +49,32 @@ func (o FileByte) WriteToFileWithPermissionExecutable(destination string) error 
 		}
 	}
 	return nil
+}
+
+func WriteTemplatesToFolder(sourceFolder, destinationFolder string, info any) error {
+	err := filepath.WalkDir(sourceFolder, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		relPath, _ := filepath.Rel(sourceFolder, path)
+		destinationPath := filepath.Join(destinationFolder, relPath)
+
+		// Create destination directory if it doesn't exist
+		if err := os.MkdirAll(filepath.Dir(destinationPath), 0755); err != nil {
+			return err
+		}
+
+		// Apply template and write to the destination file
+		fileBytes := templates(relPath, info)
+		if err := fileBytes.WriteToFile(destinationPath); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	return err
 }

@@ -1,23 +1,20 @@
-import json
 from web3 import Web3
 from web3 import HTTPProvider
-from subprocess import check_output
+import solcx
+import os
+
 
 """
 https://github.com/foundry-rs/foundry
 
 - Init new Project: forge init
 - testing: forge test -vvv
+
 """
 
 RPC_URL = ""
 PRIVKEY = ""
 SETUP_CONTRACT_ADDR = ""
-
-def get_abi(filename):
-    # get abi "solc <filename> --abi"
-    abi_str = check_output(['solc', filename, '--abi']).decode().split("Contract JSON ABI")[-1].strip()
-    return json.loads(abi_str)
 
 class Account:
     def __init__(self) -> None:
@@ -29,31 +26,70 @@ class Account:
         print("balance:",s.w3.eth.get_balance(addr))
 
 
-class BaseContract(Account):
+class BaseContractProps:
+    def __init__(self, path: str) -> None:
+        file, klass = path.split(':')
+        self.__file = os.path.abspath(file)
+        self.path = f"{self.__file}:{klass}"
+    @property
+    def abi(self):
+        klass = solcx.compile_files(self.__file, output_values=["abi"])
+        for klas in klass:
+            if klas in self.path:
+                return klass[klas]['abi']
+        raise Exception("class not found")
+
+    @property
+    def bin(self):
+        klass = solcx.compile_files(self.__file, output_values=["bin"])
+        for klas in klass:
+            if klas in self.path:
+                return klass[klas]['bin']
+        raise Exception("class not found")
+
+class BaseDeployedContract(Account, BaseContractProps):
     def __init__(self, addr, file, abi=None) -> None:
-        super().__init__()
-        self.file = file
+        BaseContractProps.__init__(self, file)
+        Account.__init__(self)
         self.address = addr
         if abi:
             self.contract = self.w3.eth.contract(addr, abi=abi)
         else:
-            self.contract = self.w3.eth.contract(addr, abi=self.get_abi())
+            self.contract = self.w3.eth.contract(addr, abi=self.abi)
 
-    def get_abi(self):
-        return get_abi(self.file)
+class BaseUndeployedContract(Account, BaseContractProps):
+    def __init__(self, path) -> None:
+        BaseContractProps.__init__(self,path)
+        Account.__init__(self)
+        self.contract = self.w3.eth.contract(abi=self.abi, bytecode=self.bin)
 
+    def deploy_to_target(self, target):
+        tx_hash = self.contract.constructor(target).transact()
+        tx_receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+        return  BaseDeployedContract(tx_receipt.contractAddress, self.path)
 
-class SetupContract(BaseContract):
+class SetupContract(BaseDeployedContract):
     def __init__(self) -> None:
         super().__init__(
             addr=SETUP_CONTRACT_ADDR,
-            file="Setup.sol",
+            file="../contracts/Setup.sol:Setup",
         )
+
+    @property
+    def target(self):
+        return self.contract.functions.TARGET().call()
+
     def is_solved(s):
         result = s.contract.functions.isSolved().call()
         print("is solved:", result)
 
+class HackContract(BaseUndeployedContract):
+    def __init__(self) -> None:
+        super().__init__("./Hack.sol:Hack")
+
 if __name__ == "__main__":
     setup = SetupContract()
-    challenge_addr = setup.contract.functions.TARGET().call()
-    challenge = ChallengeContract(challenge_addr)
+    hack = HackContract()
+    hack_deployed = hack.deploy_to_target(setup.target)
+    hack_deployed.contract.functions.hack().transact({"value":Web3.to_wei(1, "ether")})
+    setup.is_solved()
