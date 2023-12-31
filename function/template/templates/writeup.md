@@ -1,20 +1,11 @@
----
+# {{.Name}}
 
-title: "{{.Name}} | Challenge"
+|Category|Solves|
+|--------|------|
+|Web|0/12|
 
----
+# Description
 
-{{.Name}} - {{.Category}}
-===
+# Overview
 
-## Description
-{{.Description}}
-{{if .Connection_Info}}
-Connection Info:
-:::info
-{{.Connection_Info}}
-:::
-{{end}}{{if .Files}}
-## Files
-{{range $_, $v := .Files}}- [{{$v.FileName}}](attachment/{{$v.FileName}})
-{{end}}{{end}}
+# Reference

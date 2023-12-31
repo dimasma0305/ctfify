@@ -1,0 +1,22 @@
+version: "3"
+
+services:
+  proxy:
+    image: nginx:latest
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./html/:/var/www/html/:ro
+    ports:
+      - 80:80
+    networks:
+      - internal
+
+  app:
+    build: ./
+    networks:
+      - internal
+    volumes:
+      - ./html/:/var/www/html/
+
+networks:
+  internal:
