@@ -3,44 +3,105 @@ package template
 import (
 	"bytes"
 	"embed"
+	"io"
 	"os"
 	"path/filepath"
 	"text/template"
+
+	"github.com/dimasma0305/ctfify/function/log"
 )
 
 var (
-	//go:embed templates/*
-	TemplateFile embed.FS
+	//go:embed all:templates/*
+	File embed.FS
 )
 
-func GetPwn() fileByte             { return templater("pwn.py", "") }
-func GetWriteup(info any) fileByte { return templater("writeup.md", info) }
-func GetWeb() fileByte             { return templater("web.py", "") }
-
-type fileByte []byte
-
-func templater(fsfile string, info any) fileByte {
-	var buf bytes.Buffer
-	fs, _ := template.ParseFS(TemplateFile, filepath.Join("templates", fsfile))
-	fs.Execute(&buf, info)
-	return buf.Bytes()
+func PWNSolverTemplate(destination string) {
+	TemplateToDestinationThrowError("templates/solver/pwn/solver.py", "", destination)
+}
+func WEBSolverTemplate(destination string) {
+	TemplateToDestinationThrowError("templates/solver/web/solver.py", "", destination)
+}
+func WEB3SolverTemplate(destination string) {
+	TemplateToDestinationThrowError("templates/solver/web3/solver.py", "", destination)
+}
+func WEBPWNSolverTemplate(destination string) {
+	TemplateToDestinationThrowError("templates/solver/webPwn/solver.py", "", destination)
+}
+func WriteupTemplate(destination string, info any) {
+	TemplateToDestinationThrowError("templates/writeup.md", info, destination)
+}
+func WEB3ChallengeTemplate(destination string) {
+	TemplateToDestinationThrowError("templates/challenges/web3", "", destination)
+}
+func XSSChallengeTemplate(destination string) {
+	TemplateToDestinationThrowError("templates/challenges/xss", "", destination)
+}
+func PHPFPMChallengeTemplate(destination string) {
+	TemplateToDestinationThrowError("templates/challenges/php-fpm", "", destination)
 }
 
-func (o fileByte) WriteToFile(dstfile string) error {
-	if _, err := os.Stat(dstfile); os.IsNotExist(err) {
-		if err := os.WriteFile(dstfile, []byte(o), 0644); err != nil {
+func TemplateToDestinationThrowError(file string, info interface{}, destination string) {
+	if err := TemplateToDestination(file, info, destination); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// TemplateToDestination reads a template from the embedded file system and writes it to the destination.
+// If it's a folder, it recursively writes its contents to the destination. If it's a file, it writes that file to the destination.
+func TemplateToDestination(file string, info interface{}, destination string) error {
+	// Check if the template is a directory
+	dirEntries, err := File.ReadDir(file)
+	if err == nil { // It's a directory
+		return processDirectory(file, dirEntries, info, destination)
+	}
+	// It's a file, process the template
+	return processFile(file, info, destination)
+}
+
+func processDirectory(directory string, dirEntries []os.DirEntry, info interface{}, destination string) error {
+	// Create the destination directory
+	err := os.MkdirAll(destination, os.ModePerm)
+	if err != nil {
+		return err
+	}
+
+	// Recursively process each file in the directory
+	for _, entry := range dirEntries {
+		entryPath := filepath.Join(directory, entry.Name())
+		destPath := filepath.Join(destination, entry.Name())
+		if err := TemplateToDestination(entryPath, info, destPath); err != nil {
 			return err
 		}
 	}
+
 	return nil
-
 }
 
-func (o fileByte) WriteToFileWithPermisionExecutable(dstfile string) error {
-	if _, err := os.Stat(dstfile); os.IsNotExist(err) {
-		if err := os.WriteFile(dstfile, []byte(o), 0744); err != nil {
-			return err
-		}
+func processFile(file string, info interface{}, destination string) error {
+	// Parse the template
+	tmpl, err := template.ParseFS(File, file)
+	if err != nil {
+		return err
 	}
+
+	// Execute the template with the provided info
+	var outputBuffer bytes.Buffer
+	if err := tmpl.Execute(&outputBuffer, info); err != nil {
+		return err
+	}
+
+	// Write the result to the destination
+	destFile, err := os.Create(destination)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	if _, err := io.Copy(destFile, &outputBuffer); err != nil {
+		return err
+	}
+
+	log.Info("Template written to destination: %s", destFile.Name())
 	return nil
 }

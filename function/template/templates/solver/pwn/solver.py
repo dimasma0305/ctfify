@@ -3,13 +3,12 @@
 from pwn import *
 import sys
 
-BINARY = "chall"
+BINARY = "chall_patched"
 context.binary = exe = ELF(BINARY, checksec=False)
 context.terminal = "konsole -e".split()
 context.log_level = "INFO"
 context.bits = 64
 context.arch = "amd64"
-
 
 def init():
     if args.RMT:
@@ -24,7 +23,7 @@ class Exploit:
         self.p = p
 
     def debug(self, script=None):
-        if not args.RMT:
+        if not args.RMT and args.DBG:
             if script:
                 attach(self.p, "\n".join(script))
             else:
@@ -34,6 +33,7 @@ class Exploit:
 x, p = init()
 x.debug((
     "source /usr/share/pwngdb/.gdbinit",
+    "source /usr/share/peda/peda.py",
 ))
 
 p.interactive()

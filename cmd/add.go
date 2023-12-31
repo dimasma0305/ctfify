@@ -12,11 +12,53 @@ import (
 )
 
 var addFlag struct {
-	Name          string
-	Category      string
-	Connection    string
-	Tags          []string
-	TemplateToUse string
+	Name              string
+	Destination       string
+	TemplateSolver    string
+	TemplateChallenge string
+}
+
+type info struct {
+	name string
+	desc string
+}
+
+var solverTemplateList = map[string]info{
+	"web": {
+		name: "web",
+		desc: "Web Exploitation solver template",
+	},
+	"webPwn": {
+		name: "web-pwn",
+		desc: "Web Exploitation With Extra PWN solver template",
+	},
+	"pwn": {
+		name: "pwn",
+		desc: "PWN solver template",
+	},
+	"web3": {
+		name: "web3",
+		desc: "Web3 solver template",
+	},
+	"writeup": {
+		name: "writeup",
+		desc: "Writeup",
+	},
+}
+
+var challengeTemplateList = map[string]info{
+	"web3": {
+		name: "web3",
+		desc: "Web3 challenge template",
+	},
+	"xss": {
+		name: "xss",
+		desc: "XSS challenge template",
+	},
+	"php-fpm": {
+		name: "php-fpm",
+		desc: "php-fpm challenge template",
+	},
 }
 
 // addCmd represents the add command
@@ -27,45 +69,56 @@ var addCmd = &cobra.Command{
 it can be a --template like pwn template of writeup template
 that i specialy crafted`,
 	Run: func(cmd *cobra.Command, args []string) {
-		switch addFlag.TemplateToUse {
-		case "pwn":
-			if err := template.GetPwn().
-				WriteToFileWithPermisionExecutable("solve.py"); err != nil {
-				log.Fatal(err)
+		if addFlag.TemplateSolver != "" {
+			switch addFlag.TemplateSolver {
+			case solverTemplateList["writeup"].name:
+				template.WriteupTemplate(addFlag.Destination, addFlag)
+			case solverTemplateList["pwn"].name:
+				template.PWNSolverTemplate(addFlag.Destination)
+			case solverTemplateList["web"].name:
+				template.WEBSolverTemplate(addFlag.Destination)
+			case solverTemplateList["webPwn"].name:
+				template.WEBPWNSolverTemplate(addFlag.Destination)
+			case solverTemplateList["web3"].name:
+				template.WEB3SolverTemplate(addFlag.Destination)
 			}
-		case "writeup":
-			if err := template.GetWriteup(addFlag).
-				WriteToFile("README.md"); err != nil {
-				log.Fatal(err)
+		} else if addFlag.TemplateChallenge != "" {
+			switch addFlag.TemplateChallenge {
+			case challengeTemplateList["web3"].name:
+				template.WEB3ChallengeTemplate(addFlag.Destination)
+			case challengeTemplateList["xss"].name:
+				template.XSSChallengeTemplate(addFlag.Destination)
+			case challengeTemplateList["php-fpm"].name:
+				template.PHPFPMChallengeTemplate(addFlag.Destination)
 			}
-		case "web":
-			if err := template.GetWeb().WriteToFile("solve.py"); err != nil {
-				log.Fatal(err)
+
+		}
+
+	},
+}
+
+func completerBuilder(tmplList map[string]info) func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		matches := make([]string, 0)
+		for c, d := range tmplList {
+			if strings.HasPrefix(c, toComplete) {
+				matches = append(matches, c+"\t"+d.desc)
 			}
 		}
-	},
+		return matches, cobra.ShellCompDirectiveNoFileComp
+	}
 }
 
 func init() {
 	rootCmd.AddCommand(addCmd)
-	addCmd.Flags().StringVarP(&addFlag.Name, "name", "n", "{.Name}", "challenge name")
-	addCmd.Flags().StringVarP(&addFlag.Category, "category", "c", "{.Category}", "challenge category")
-	addCmd.Flags().StringVar(&addFlag.Connection, "connection", "{.Connection}", "challenge connection info")
-	addCmd.Flags().StringSliceVar(&addFlag.Tags, "tags", []string{}, "challenge tags")
-
-	addCmd.Flags().StringVar(&addFlag.TemplateToUse, "template", "", "make a template")
-	addCmd.RegisterFlagCompletionFunc("template", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		completions := map[string]string{
-			"writeup": "Template for writeup",
-			"pwn":     "Template for pwn",
-			"web":     "Template for web",
-		}
-		matches := make([]string, 0)
-		for c, d := range completions {
-			if strings.HasPrefix(c, toComplete) {
-				matches = append(matches, c+"\t"+d)
-			}
-		}
-		return matches, cobra.ShellCompDirectiveNoFileComp
-	})
+	addCmd.Flags().StringVarP(&addFlag.Name, "name", "n", "{.Name}", "Name")
+	addCmd.Flags().StringVarP(&addFlag.Destination, "destination", "d", ".", "destination")
+	addCmd.Flags().StringVar(&addFlag.TemplateSolver, "solver", "", "solver template")
+	addCmd.Flags().StringVar(&addFlag.TemplateChallenge, "challenge", "", "challenge template")
+	if err := addCmd.RegisterFlagCompletionFunc("solver", completerBuilder(solverTemplateList)); err != nil {
+		log.Fatal(err)
+	}
+	if err := addCmd.RegisterFlagCompletionFunc("challenge", completerBuilder(challengeTemplateList)); err != nil {
+		log.Fatal(err)
+	}
 }

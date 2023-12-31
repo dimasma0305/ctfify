@@ -11,7 +11,7 @@ class BaseAPI:
         self.c = httpx.Client(base_url=url)
 
 
-class UtilsAPI(BaseAPI):
+class API(BaseAPI):
     def make_raw_request(self, method, path, **kwargs):
         request = self.c.build_request(method, path, **kwargs)
         raw_request = self._format_raw_request(request)
@@ -51,10 +51,6 @@ class UtilsAPI(BaseAPI):
                 chunk_size -= len(data)
             chunks.append(chunk_data)
         return b"".join(chunks)
-
-
-class API(UtilsAPI):
-    ...
 
 
 if __name__ == "__main__":
