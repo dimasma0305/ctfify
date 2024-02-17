@@ -3,6 +3,7 @@ package template
 import (
 	"bytes"
 	"embed"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,31 +16,6 @@ var (
 	//go:embed all:templates/*
 	File embed.FS
 )
-
-func PWNSolverTemplate(destination string) {
-	TemplateToDestinationThrowError("templates/solver/pwn/solver.py", "", destination)
-}
-func WEBSolverTemplate(destination string) {
-	TemplateToDestinationThrowError("templates/solver/web/solver.py", "", destination)
-}
-func WEB3SolverTemplate(destination string) {
-	TemplateToDestinationThrowError("templates/solver/web3/solver.py", "", destination)
-}
-func WEBPWNSolverTemplate(destination string) {
-	TemplateToDestinationThrowError("templates/solver/webPwn/solver.py", "", destination)
-}
-func WriteupTemplate(destination string, info any) {
-	TemplateToDestinationThrowError("templates/writeup.md", info, destination)
-}
-func WEB3ChallengeTemplate(destination string) {
-	TemplateToDestinationThrowError("templates/challenges/web3", "", destination)
-}
-func XSSChallengeTemplate(destination string) {
-	TemplateToDestinationThrowError("templates/challenges/xss", "", destination)
-}
-func PHPFPMChallengeTemplate(destination string) {
-	TemplateToDestinationThrowError("templates/challenges/php-fpm", "", destination)
-}
 
 func TemplateToDestinationThrowError(file string, info interface{}, destination string) {
 	if err := TemplateToDestination(file, info, destination); err != nil {
@@ -79,6 +55,12 @@ func processDirectory(directory string, dirEntries []os.DirEntry, info interface
 }
 
 func processFile(file string, info interface{}, destination string) error {
+	// Check if the destination file already exists
+	if _, err := os.Stat(destination); err == nil {
+		// File exists, return an error or handle it as needed
+		return fmt.Errorf("destination file already exists: %s", destination)
+	}
+
 	// Parse the template
 	tmpl, err := template.ParseFS(File, file)
 	if err != nil {

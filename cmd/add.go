@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/dimasma0305/ctfify/function/log"
-	"github.com/dimasma0305/ctfify/function/template"
+	"github.com/dimasma0305/ctfify/function/template/challenge"
+	"github.com/dimasma0305/ctfify/function/template/other"
+	"github.com/dimasma0305/ctfify/function/template/solver"
 	"github.com/spf13/cobra"
 )
 
@@ -16,6 +18,7 @@ var addFlag struct {
 	Destination       string
 	TemplateSolver    string
 	TemplateChallenge string
+	TemplateOther     string
 }
 
 type info struct {
@@ -29,7 +32,7 @@ var solverTemplateList = map[string]info{
 		desc: "Web Exploitation solver template",
 	},
 	"webPwn": {
-		name: "web-pwn",
+		name: "webPwn",
 		desc: "Web Exploitation With Extra PWN solver template",
 	},
 	"pwn": {
@@ -39,10 +42,6 @@ var solverTemplateList = map[string]info{
 	"web3": {
 		name: "web3",
 		desc: "Web3 solver template",
-	},
-	"writeup": {
-		name: "writeup",
-		desc: "Writeup",
 	},
 }
 
@@ -61,6 +60,17 @@ var challengeTemplateList = map[string]info{
 	},
 }
 
+var otherTemplateList = map[string]info{
+	"readflag": {
+		name: "readflag",
+		desc: "readflag.c template",
+	},
+	"writeup": {
+		name: "writeup",
+		desc: "Writeup template",
+	},
+}
+
 // addCmd represents the add command
 var addCmd = &cobra.Command{
 	Use:   "add",
@@ -72,26 +82,32 @@ that i specialy crafted`,
 		if addFlag.TemplateSolver != "" {
 			switch addFlag.TemplateSolver {
 			case solverTemplateList["writeup"].name:
-				template.WriteupTemplate(addFlag.Destination, addFlag)
+				other.Writeup(addFlag.Destination, addFlag)
 			case solverTemplateList["pwn"].name:
-				template.PWNSolverTemplate(addFlag.Destination)
+				solver.PWN(addFlag.Destination)
 			case solverTemplateList["web"].name:
-				template.WEBSolverTemplate(addFlag.Destination)
+				solver.Web(addFlag.Destination)
 			case solverTemplateList["webPwn"].name:
-				template.WEBPWNSolverTemplate(addFlag.Destination)
+				solver.WebPWN(addFlag.Destination)
 			case solverTemplateList["web3"].name:
-				template.WEB3SolverTemplate(addFlag.Destination)
+				solver.Web3(addFlag.Destination)
 			}
 		} else if addFlag.TemplateChallenge != "" {
 			switch addFlag.TemplateChallenge {
 			case challengeTemplateList["web3"].name:
-				template.WEB3ChallengeTemplate(addFlag.Destination)
+				challenge.Web3(addFlag.Destination)
 			case challengeTemplateList["xss"].name:
-				template.XSSChallengeTemplate(addFlag.Destination)
+				challenge.XSS(addFlag.Destination)
 			case challengeTemplateList["php-fpm"].name:
-				template.PHPFPMChallengeTemplate(addFlag.Destination)
+				challenge.PHPFPM(addFlag.Destination)
 			}
-
+		} else if addFlag.TemplateOther != "" {
+			switch addFlag.TemplateOther {
+			case otherTemplateList["readflag"].name:
+				other.ReadFlag(addFlag.Destination)
+			case otherTemplateList["writeup"].name:
+				other.Writeup(addFlag.Destination, addFlag)
+			}
 		}
 
 	},
@@ -115,10 +131,14 @@ func init() {
 	addCmd.Flags().StringVarP(&addFlag.Destination, "destination", "d", ".", "destination")
 	addCmd.Flags().StringVar(&addFlag.TemplateSolver, "solver", "", "solver template")
 	addCmd.Flags().StringVar(&addFlag.TemplateChallenge, "challenge", "", "challenge template")
+	addCmd.Flags().StringVar(&addFlag.TemplateOther, "other", "", "other template")
 	if err := addCmd.RegisterFlagCompletionFunc("solver", completerBuilder(solverTemplateList)); err != nil {
 		log.Fatal(err)
 	}
 	if err := addCmd.RegisterFlagCompletionFunc("challenge", completerBuilder(challengeTemplateList)); err != nil {
+		log.Fatal(err)
+	}
+	if err := addCmd.RegisterFlagCompletionFunc("other", completerBuilder(otherTemplateList)); err != nil {
 		log.Fatal(err)
 	}
 }

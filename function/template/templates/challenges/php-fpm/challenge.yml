@@ -2,7 +2,7 @@
 # other tools to install and deploy your challenge.
 
 # Required sections
-name: "XSS"
+name: "PHP-FPM"
 author: "Dimas"
 category: Web
 description: |
@@ -21,24 +21,10 @@ extra:
     decay: 100
     minimum: 50
 
-# Settings used for Dockerfile deployment
-# If not used, remove or set to null
-# If you have a Dockerfile set to .
-# If you have an imaged hosted on Docker set to the image url (e.g. python/3.8:latest, registry.gitlab.com/python/3.8:latest)
-# Follow Docker best practices and assign a tag
-image: null
-
-# Specify a protocol that should be used to connect to the running image
-# For example if the image is a website you can specify http or https
-# Otherwise you can specify tcp
-protocol: null
-
-# Specify a host to deploy the challenge onto.
-# The currently supported URI schemes are ssh:// and registry://
-# ssh is an ssh URI where the above image will be copied to and deployed (e.g. ssh://root@123.123.123.123)
-# registry is a Docker registry tag (e.g registry://registry.example.com/test/image)
-# host can also be specified during the deploy process: `ctf challenge deploy challenge --host=ssh://root@123.123.123.123`
-host: null
+# Script to start or stop challenge instance
+script:
+    start: docker-compose up --build
+    stop: docker-compose down --volumes
 
 # Optional settings
 
