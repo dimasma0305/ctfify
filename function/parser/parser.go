@@ -11,24 +11,50 @@ import (
 	"github.com/lqqyt2423/go-mitmproxy/proxy"
 )
 
+// func ParseBody(f *proxy.Flow) (interface{}, error) {
+// 	contentType := f.Request.Header.Get("content-type")
+// 	var data interface{}
+// 	var err error
+// 	switch {
+// 	case strings.Contains(contentType, "application/json"):
+// 		data, err = parseJSON(f)
+// 	case strings.Contains(contentType, "application/xml"):
+// 		data, err = parseXML(f)
+// 	case strings.Contains(contentType, "application/x-www-form-urlencoded"):
+// 		data, err = parseFormURLEncoded(f)
+// 	case strings.Contains(contentType, "multipart/form-data"):
+// 		data, err = parseMultipartFormData(f)
+// 	case strings.Contains(contentType, "text/plain"):
+// 		data, err = parseTextPlain(f)
+// 	default:
+// 		data = nil
+// 		err = fmt.Errorf("the body didn't have a match parser %s", contentType)
+// 	}
+// 	return data, err
+// }
+
 func ParseBody(f *proxy.Flow) (interface{}, error) {
 	contentType := f.Request.Header.Get("content-type")
 	var data interface{}
 	var err error
-	switch {
-	case strings.Contains(contentType, "application/json"):
-		data, err = parseJSON(f)
-	case strings.Contains(contentType, "application/xml"):
-		data, err = parseXML(f)
-	case strings.Contains(contentType, "application/x-www-form-urlencoded"):
+	data, err = parseJSON(f)
+	if err != nil {
 		data, err = parseFormURLEncoded(f)
-	case strings.Contains(contentType, "multipart/form-data"):
-		data, err = parseMultipartFormData(f)
-	case strings.Contains(contentType, "text/plain"):
-		data, err = parseTextPlain(f)
-	default:
-		data = nil
-		err = fmt.Errorf("the body didn't have a match parser %s", contentType)
+		if err != nil {
+			data, err = parseXML(f)
+			if err != nil {
+				data, err = parseMultipartFormData(f)
+				if err != nil {
+					data, err = parseTextPlain(f)
+					if err != nil {
+						err = fmt.Errorf("the body didn't have a match parser %s", contentType)
+					}
+				}
+			}
+		}
+	}
+	if data != nil {
+		err = nil
 	}
 	return data, err
 }
