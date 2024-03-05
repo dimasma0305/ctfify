@@ -9,3 +9,7 @@ func ReadFlag(destination string) {
 func Writeup(destination string, info any) {
 	template.TemplateToDestinationThrowError("templates/others/writeup", info, destination)
 }
+
+func POC(destination string, info any) {
+	template.TemplateToDestinationThrowError("templates/others/poc", info, destination)
+}

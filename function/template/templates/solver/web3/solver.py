@@ -63,8 +63,8 @@ class BaseUndeployedContract(Account, BaseContractProps):
         Account.__init__(self)
         self.contract = self.w3.eth.contract(abi=self.abi, bytecode=self.bin)
 
-    def deploy_to_target(self, target):
-        tx_hash = self.contract.constructor(target).transact()
+    def construct(self, *args, **kwargs):
+        tx_hash = self.contract.constructor(*args, **kwargs).transact()
         tx_receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
         return  BaseDeployedContract(tx_receipt.contractAddress, self.path)
 
@@ -90,6 +90,6 @@ class HackContract(BaseUndeployedContract):
 if __name__ == "__main__":
     setup = SetupContract()
     hack = HackContract()
-    hack_deployed = hack.deploy_to_target(setup.target)
+    hack_deployed = hack.construct(setup.target)
     hack_deployed.contract.functions.hack().transact({"value":Web3.to_wei(1, "ether")})
     setup.is_solved()

@@ -69,6 +69,10 @@ var otherTemplateList = map[string]info{
 		name: "writeup",
 		desc: "Writeup template",
 	},
+	"poc": {
+		name: "poc",
+		desc: "POC Template",
+	},
 }
 
 // addCmd represents the add command
@@ -107,6 +111,8 @@ that i specialy crafted`,
 				other.ReadFlag(addFlag.Destination)
 			case otherTemplateList["writeup"].name:
 				other.Writeup(addFlag.Destination, addFlag)
+			case otherTemplateList["poc"].name:
+				other.POC(addFlag.Destination, addFlag)
 			}
 		}
 
