@@ -1,0 +1,1 @@
+{"https://text-polyfill-982935551e3a.1753ctf.com":{"POST:/process":{"body":{"Files":[{"Filename":"hackerika.webp","Header":{"Content-Disposition":["form-data; name=\"image\"; filename=\"hackerika.webp\""],"Content-Type":["image/webp"]},"Size":4886}],"Values":{"text":["x"]}},"content-type":"multipart/form-data; boundary=---------------------------1486699224138863796739610189"}}}

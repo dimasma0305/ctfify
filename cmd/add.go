@@ -43,6 +43,10 @@ var solverTemplateList = map[string]info{
 		name: "web3",
 		desc: "Web3 solver template",
 	},
+	"webServer": {
+		name: "webServer",
+		desc: "Web Server template",
+	},
 }
 
 var challengeTemplateList = map[string]info{
@@ -95,6 +99,8 @@ that i specialy crafted`,
 				solver.WebPWN(addFlag.Destination)
 			case solverTemplateList["web3"].name:
 				solver.Web3(addFlag.Destination)
+			case solverTemplateList["webServer"].name:
+				solver.WebServer(addFlag.Destination)
 			}
 		} else if addFlag.TemplateChallenge != "" {
 			switch addFlag.TemplateChallenge {

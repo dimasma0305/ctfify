@@ -16,3 +16,6 @@ func Web3(destination string) {
 func WebPWN(destination string) {
 	template.TemplateToDestinationThrowError("templates/solver/webPwn", "", destination)
 }
+func WebServer(destination string) {
+	template.TemplateToDestinationThrowError("templates/solver/webServer", "", destination)
+}

@@ -30,6 +30,7 @@ var proxyCmd = &cobra.Command{
 		opts := &proxy.Options{
 			Addr:              proxyFlag.proxyAddr,
 			StreamLargeBodies: 1024 * 1024 * 5,
+			SslInsecure:       true,
 		}
 		p, err := proxy.NewProxy(opts)
 		if err != nil {
@@ -51,8 +52,9 @@ var proxyCmd = &cobra.Command{
 			}
 			p.AddAddon(requestMapper)
 		}
-
-		p.Start()
+		if err := p.Start(); err != nil {
+			log.Fatal(err)
+		}
 	},
 }
 

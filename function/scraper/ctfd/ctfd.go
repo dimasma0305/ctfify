@@ -2,7 +2,6 @@ package ctfd
 
 import (
 	"fmt"
-	"net/http"
 	"net/url"
 	"strings"
 
@@ -44,10 +43,7 @@ func New(url string, creds *Creds) *ctfdScraper {
 
 	scraper = &ctfdScraper{
 		client: req.C().
-			SetUserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0").
-			SetRedirectPolicy(func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			}),
+			SetUserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0"),
 		Url:           url,
 		challengesUrl: challengeUrl,
 		hintsUrl:      hintsUrl,

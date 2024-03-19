@@ -3,6 +3,7 @@ package addons
 import (
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net/url"
 	"os"
 	"path"
@@ -120,8 +121,21 @@ func generateScriptForHost(request *Request, dir string, uri string) error {
 				for k := range requestData.Body.(map[string]interface{}) {
 					script += ", " + k
 				}
+			case (*parser.FormData):
+				formData := requestData.Body.(*parser.FormData)
+				for file := range formData.Files {
+					_, params, err := mime.ParseMediaType(formData.Files[file].Header.Get("Content-Disposition"))
+					if err != nil {
+						continue
+					}
+					k := params["name"]
+					script += ", " + k
+				}
+				for k := range formData.Values {
+					script += ", " + k
+				}
 			default:
-				log.Info("Request Body Type: %s", requestData.Body)
+				log.Info("Request Body Type: %T Value: %s", requestData.Body, requestData.Body)
 			}
 			script += "):\n"
 			var requestType string
@@ -131,18 +145,34 @@ func generateScriptForHost(request *Request, dir string, uri string) error {
 			if strings.Contains(requestData.ContentType, "application/json") {
 				requestType = "json"
 			}
+			if strings.Contains(requestData.ContentType, "multipart") {
+				requestType = "files"
+			}
 			script += "        return self.c." + strings.ToLower(method) + `("` + path + `", ` + requestType + "={\n"
 			switch requestData.Body.(type) {
-			case (url.Values):
+			case url.Values:
 				for k := range requestData.Body.(url.Values) {
 					script += `            "` + k + `": ` + k + ",\n"
 				}
-			case (map[string]interface{}):
+			case map[string]interface{}:
 				for k := range requestData.Body.(map[string]interface{}) {
 					script += `            "` + k + `": ` + k + ",\n"
 				}
+			case *parser.FormData:
+				formData := requestData.Body.(*parser.FormData)
+				for file := range formData.Files {
+					_, params, err := mime.ParseMediaType(formData.Files[file].Header.Get("Content-Disposition"))
+					if err != nil {
+						continue
+					}
+					k := params["name"]
+					script += `            "` + k + `": ` + k + ",\n"
+				}
+				for k := range formData.Values {
+					script += `            "` + k + `": ` + k + ",\n"
+				}
 			default:
-				log.Info("Request Body Type: %s", requestData.Body)
+				log.Info("Request Body Type: %T Value: %s", requestData.Body, requestData.Body)
 			}
 
 			script += "        })\n"
