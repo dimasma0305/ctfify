@@ -2,7 +2,6 @@ package addons
 
 import (
 	"encoding/json"
-	"fmt"
 	"mime"
 	"net/url"
 	"os"
@@ -74,12 +73,11 @@ func (rm *RequestMapper) Response(f *proxy.Flow) {
 	if rm.requests[key] == nil {
 		rm.requests[key] = make(map[string]*RequestData)
 	}
-	fmt.Println()
 	rm.requests[key][f.Request.Method+":"+f.Request.URL.Path] = &request
 
 	saveJSONToFile(rm.requests, path.Join(rm.dir, "map.json"))
 	for uri, request := range rm.requests {
-		generateScriptForHost(&request, path.Join(rm.dir, f.Request.URL.Host+"-api.py"), uri)
+		generateScriptForHost(&request, path.Join(rm.dir, "api.py"), uri)
 	}
 }
 
@@ -111,6 +109,9 @@ func generateScriptForHost(request *Request, dir string, uri string) error {
 		if method == "POST" {
 			funcName := strings.ReplaceAll(path, "/", "_")
 			funcName = strings.Trim(funcName, "_")
+			if funcName == "" {
+				funcName = "home"
+			}
 			script += `    def ` + funcName + `(self`
 			switch requestData.Body.(type) {
 			case (url.Values):

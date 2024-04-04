@@ -34,7 +34,8 @@ func (fu *fileUrl) DowloadFileToDir(dstFolder string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dstFolder, fu.FileName()), data, 0644); err != nil {
+	file := filepath.Join(dstFolder, fu.FileName())
+	if err := os.WriteFile(file, data, 0644); err != nil {
 		return err
 	}
 	return nil

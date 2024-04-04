@@ -10,6 +10,7 @@ import (
 	"text/template"
 
 	"github.com/dimasma0305/ctfify/function/log"
+	"github.com/dimasma0305/ctfify/function/utils"
 )
 
 var (
@@ -62,7 +63,7 @@ func processFile(file string, info interface{}, destination string) error {
 	}
 
 	// Parse the template
-	tmpl, err := template.ParseFS(File, file)
+	tmpl, err := template.ParseFS(File, utils.NormalizePath(file))
 	if err != nil {
 		return err
 	}

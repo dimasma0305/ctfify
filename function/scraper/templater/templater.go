@@ -6,6 +6,8 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+
+	"github.com/dimasma0305/ctfify/function/utils"
 )
 
 var (
@@ -50,11 +52,11 @@ func writeTemplatesToDir(src string, dstFolder string, obj interface{}) error {
 		newsrc := filepath.Join(src, file.Name())
 		newdst := filepath.Join(dstFolder, file.Name())
 		if file.IsDir() {
-			if err := writeTemplatesToDir(newsrc, newdst, obj); err != nil {
+			if err := writeTemplatesToDir(utils.NormalizePath(newsrc), newdst, obj); err != nil {
 				return err
 			}
 		} else {
-			if err := writeTemplateToFile(newsrc, newdst, obj); err != nil {
+			if err := writeTemplateToFile(utils.NormalizePath(newsrc), newdst, obj); err != nil {
 				return err
 			}
 		}
