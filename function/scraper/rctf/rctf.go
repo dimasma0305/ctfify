@@ -22,7 +22,8 @@ func Init(Url string, Token string) (*RCTFScraper, error) {
 			SetUserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0").
 			SetRedirectPolicy(func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
-			})
+			}).
+			EnableInsecureSkipVerify()
 		data struct {
 			Kind    string `json:"kind"`
 			Message string `json:"message"`

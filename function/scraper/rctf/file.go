@@ -1,26 +1,25 @@
 package rctf
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
-type fileUrl string
-
-// get filename from the url
-func (fu *fileUrl) FileName() string {
-	var (
-		raw      = string(*fu)
-		path     = strings.Split(raw, "?")[0]
-		filename = filepath.Base(path)
-	)
-	return filename
+type File struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
-// download file from ctfd platform
+type fileUrl File
+
+func (fu *fileUrl) FileName() string {
+	fmt.Println(fu.Name)
+	return fu.Name
+}
+
 func (fu *fileUrl) DownloadFile() ([]byte, error) {
-	res, err := rctfScraper.c.R().Get(rctfScraper.Url.JoinPath(string(*fu)).String())
+	res, err := rctfScraper.c.R().Get(rctfScraper.Url.JoinPath(fu.URL).String())
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +27,6 @@ func (fu *fileUrl) DownloadFile() ([]byte, error) {
 	return res.Bytes(), nil
 }
 
-// download the file and put it into destination folder
 func (fu *fileUrl) DowloadFileToDir(dstFolder string) error {
 	data, err := fu.DownloadFile()
 	if err != nil {
