@@ -1,0 +1,26 @@
+url: http://localhost:80/
+creds:
+  username: dimas
+  password: d1Ma?s
+event:
+  id: 36
+  title: TCP1P CTF
+  hidden: false
+  summary: TCP1P CTF is a CTF event
+  content: TCP1P CTF is a CTF event
+  acceptWithoutReview: false
+  writeupRequired: true
+  organizations:
+  - hacker baik
+  - hacker jahat
+  - hacker abu abu
+  teamMemberCountLimit: 0
+  containerCountLimit: 3
+  poster: /assets/e339d3eed2e1c72f0d8b533f7dc425ef0b9ee26ee58286534af957b22ba95f07/poster
+  publicKey: ubYiLITt+Rae8K06wz9oANPNJ1B0EaKVx4PBxTa6nsM=
+  practiceMode: true
+  start: 2023-01-01T00:00:00Z
+  end: 2025-01-01T00:00:00Z
+  writeupDeadline: 2025-01-01T00:00:00Z
+  writeupNote: Bikin writeup ya!
+  bloodBonus: 52459530

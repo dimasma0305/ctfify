@@ -13,3 +13,7 @@ func Writeup(destination string, info any) {
 func POC(destination string, info any) {
 	template.TemplateToDestinationThrowError("templates/others/poc", info, destination)
 }
+
+func JavaExploitationPlus(destination string, info any) {
+	template.TemplateToDestinationThrowError("templates/others/java-exploit-plus", info, destination)
+}

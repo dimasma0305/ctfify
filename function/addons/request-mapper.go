@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/dimasma0305/ctfify/function/log"
-	"github.com/dimasma0305/ctfify/function/parser"
+	"github.com/dimasma0305/ctfify/function/utils"
 	"github.com/lqqyt2423/go-mitmproxy/proxy"
 )
 
@@ -29,6 +29,8 @@ type RequestData struct {
 	Body        interface{} `json:"body,omitempty"`
 	ContentType string      `json:"content-type,omitempty"`
 }
+
+var notAllowedChars = regexp.MustCompile(`[^a-zA-Z0-9]`)
 
 func NewRequestMapper(dir string, urlRegex string) (*RequestMapper, error) {
 	regex, err := regexp.Compile(urlRegex)
@@ -65,7 +67,7 @@ func (rm *RequestMapper) Response(f *proxy.Flow) {
 	logx.Infof("mapping...")
 
 	var request RequestData
-	body, _ := parser.ParseBody(f)
+	body, _ := utils.ParseBody(f)
 	request.Body = body
 	request.QueryParams = f.Request.URL.Query()
 	request.ContentType = f.Request.Header.Get("Content-Type")
@@ -106,8 +108,8 @@ func generateScriptForHost(request *Request, dir string, uri string) error {
 		key := strings.SplitN(requestKey, ":", 2)
 		method := key[0]
 		path := key[1]
-		if method == "POST" {
-			funcName := strings.ReplaceAll(path, "/", "_")
+		if method == "POST" || method == "DELETE" || method == "PUT" {
+			funcName := notAllowedChars.ReplaceAllString(path, "_")
 			funcName = strings.Trim(funcName, "_")
 			if funcName == "" {
 				funcName = "home"
@@ -122,8 +124,8 @@ func generateScriptForHost(request *Request, dir string, uri string) error {
 				for k := range requestData.Body.(map[string]interface{}) {
 					script += ", " + k
 				}
-			case (*parser.FormData):
-				formData := requestData.Body.(*parser.FormData)
+			case (*utils.FormData):
+				formData := requestData.Body.(*utils.FormData)
 				for file := range formData.Files {
 					_, params, err := mime.ParseMediaType(formData.Files[file].Header.Get("Content-Disposition"))
 					if err != nil {
@@ -136,18 +138,20 @@ func generateScriptForHost(request *Request, dir string, uri string) error {
 					script += ", " + k
 				}
 			default:
-				log.Info("Request Body Type: %T Value: %s", requestData.Body, requestData.Body)
+				for k := range requestData.QueryParams {
+					script += ", " + k
+				}
 			}
 			script += "):\n"
 			var requestType string
 			if strings.Contains(requestData.ContentType, "application/x-www-form-urlencoded") {
 				requestType = "data"
-			}
-			if strings.Contains(requestData.ContentType, "application/json") {
+			} else if strings.Contains(requestData.ContentType, "application/json") {
 				requestType = "json"
-			}
-			if strings.Contains(requestData.ContentType, "multipart") {
+			} else if strings.Contains(requestData.ContentType, "multipart") {
 				requestType = "files"
+			} else {
+				requestType = "params"
 			}
 			script += "        return self.c." + strings.ToLower(method) + `("` + path + `", ` + requestType + "={\n"
 			switch requestData.Body.(type) {
@@ -159,8 +163,8 @@ func generateScriptForHost(request *Request, dir string, uri string) error {
 				for k := range requestData.Body.(map[string]interface{}) {
 					script += `            "` + k + `": ` + k + ",\n"
 				}
-			case *parser.FormData:
-				formData := requestData.Body.(*parser.FormData)
+			case *utils.FormData:
+				formData := requestData.Body.(*utils.FormData)
 				for file := range formData.Files {
 					_, params, err := mime.ParseMediaType(formData.Files[file].Header.Get("Content-Disposition"))
 					if err != nil {
@@ -173,7 +177,9 @@ func generateScriptForHost(request *Request, dir string, uri string) error {
 					script += `            "` + k + `": ` + k + ",\n"
 				}
 			default:
-				log.Info("Request Body Type: %T Value: %s", requestData.Body, requestData.Body)
+				for k := range requestData.QueryParams {
+					script += ", " + k
+				}
 			}
 
 			script += "        })\n"

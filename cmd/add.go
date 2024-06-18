@@ -77,6 +77,10 @@ var otherTemplateList = map[string]info{
 		name: "poc",
 		desc: "POC Template",
 	},
+	"java-exploitation-plus": {
+		name: "java-exploitation-plus",
+		desc: "Java Exploitation Framework",
+	},
 }
 
 // addCmd represents the add command
@@ -119,6 +123,8 @@ that i specialy crafted`,
 				other.Writeup(addFlag.Destination, addFlag)
 			case otherTemplateList["poc"].name:
 				other.POC(addFlag.Destination, addFlag)
+			case otherTemplateList["java-exploitation-plus"].name:
+				other.JavaExploitationPlus(addFlag.Destination, addFlag)
 			}
 		}
 

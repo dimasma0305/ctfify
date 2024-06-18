@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=../../challenge.schema.yaml
+
+name: "Example"
+author: "dimas"
+description: "This is a example challenge"
+type: "StaticAttachment"
+
+flag:
+  - "flag{example_flag}"
+
+value: 1000
+
+visible: true
+
+provide: "./dist"
+hints:
+ - fooflag
+
+

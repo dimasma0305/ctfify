@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=conf.schema.yaml
+url: http://localhost:80/
+creds:
+  username: dimas
+  password: d1Ma?s
+event:
+  title: "TCP1P CTF"
+  start: "2023-01-01T00:00:00+00:00"
+  end: "2025-01-01T00:00:00+00:00"
+  poster: "./poster.jpg"
+  hidden: false
+  summary: "TCP1P CTF is a CTF event"
+  content: "TCP1P CTF is a CTF event"
+  acceptWithoutReview: false
+  inviteCode: null
+  organizations:
+    - "hacker baik"
+    - "hacker jahat"
+    - "hacker abu abu"
+  teamMemberCountLimit: 0
+  containerCountLimit: 3
+  practiceMode: true
+  writeupRequired: true
+  writeupDeadline: "2025-01-01T00:00:00+00:00"
+  writeupNote: "Bikin writeup ya!"
+  bloodBonus: 52459530

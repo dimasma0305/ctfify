@@ -16,6 +16,10 @@ func Fatal(err error) {
 	os.Exit(1)
 }
 
+func Error(str string, elem ...any) {
+	fmt.Fprintln(os.Stderr, color.RedString("[x] ")+fmt.Sprintf(str, elem...))
+}
+
 func Info(format string, elem ...any) {
 	fmt.Println(color.BlueString("[x] ") + fmt.Sprintf(format, elem...))
 }

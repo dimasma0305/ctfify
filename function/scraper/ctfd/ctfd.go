@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/dimasma0305/ctfify/function/utils"
 	"github.com/imroc/req/v3"
 )
 
@@ -37,9 +38,9 @@ func Init(url string, creds *Creds) (*ctfdScraper, error) {
 
 // Create a New ctfScraper
 func New(url string, creds *Creds) *ctfdScraper {
-	challengeUrl := urlJoinPath(url, "/api/v1/challenges")
-	hintsUrl := urlJoinPath(url, "/api/v1/hints")
-	loginUrl := urlJoinPath(url, "/login")
+	challengeUrl := utils.UrlJoinPath(url, "/api/v1/challenges")
+	hintsUrl := utils.UrlJoinPath(url, "/api/v1/hints")
+	loginUrl := utils.UrlJoinPath(url, "/login")
 
 	scraper = &ctfdScraper{
 		client: req.C().

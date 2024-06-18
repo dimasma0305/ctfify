@@ -3,7 +3,6 @@ package ctfd
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 )
 
 // Parse information from ctfd and get data response
@@ -23,12 +22,4 @@ func getData(byte []byte, data any) error {
 		return err
 	}
 	return nil
-}
-
-func urlJoinPath(base string, path ...string) string {
-	res, err := url.JoinPath(base, path...)
-	if err != nil {
-		panic(err)
-	}
-	return res
 }
