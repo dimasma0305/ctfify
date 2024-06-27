@@ -38,6 +38,11 @@ properties:
     description: An array of hints for the CTF challenge.
     items:
       type: string
+  scripts:
+    type: array
+    description: An array of scripts to run for the CTF challenge.
+    items:
+      type: string
   container:
     type: object
     description: Configuration details for container-based challenges.
@@ -80,7 +85,6 @@ required:
   - description
   - flags
   - value
-  - visible
   - type
 allOf:
   - if:

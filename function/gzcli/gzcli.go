@@ -4,12 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
-
-	"regexp"
 
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
-	"github.com/dimasma0305/ctfify/function/log"
 )
 
 type Config struct {
@@ -29,21 +25,49 @@ type Container struct {
 }
 
 type ChallengeYaml struct {
-	Name        string    `yaml:"name"`
-	Author      string    `yaml:"author"`
-	Description string    `yaml:"description"`
-	Flags       []string  `yaml:"flags"`
-	Value       int       `yaml:"value"`
-	Provide     *string   `yaml:"provide,omitempty"`
-	Visible     *bool     `yaml:"visible"`
-	Type        string    `yaml:"type"`
-	Hints       []string  `yaml:"hints"`
-	Container   Container `yaml:"container"`
-	Tag         string    `yaml:"-"`
-	Cwd         string    `yaml:"-"`
+	Name        string            `yaml:"name"`
+	Author      string            `yaml:"author"`
+	Description string            `yaml:"description"`
+	Flags       []string          `yaml:"flags"`
+	Value       int               `yaml:"value"`
+	Provide     *string           `yaml:"provide,omitempty"`
+	Visible     *bool             `yaml:"visible"`
+	Type        string            `yaml:"type"`
+	Hints       []string          `yaml:"hints"`
+	Container   Container         `yaml:"container"`
+	Scripts     map[string]string `yaml:"scripts"`
+	Tag         string            `yaml:"-"`
+	Cwd         string            `yaml:"-"`
 }
 
-func InitFolder() error {
+type Standing struct {
+	Pos   int    `json:"pos"`
+	Team  string `json:"team"`
+	Score int    `json:"score"`
+}
+
+type CTFTimeFeed struct {
+	Tasks     []string   `json:"tasks"`
+	Standings []Standing `json:"standings"`
+}
+
+type GZ struct{}
+
+var api *gzapi.API
+
+func Init() (*GZ, error) {
+	config, err := GetConfig()
+	if err != nil {
+		return nil, err
+	}
+	api, err = gzapi.Init(config.Url, &config.Creds)
+	if err != nil {
+		return nil, err
+	}
+	return &GZ{}, nil
+}
+
+func (gz *GZ) InitFolder() error {
 	dir, err := os.Getwd()
 	if err != nil {
 		return err
@@ -51,36 +75,27 @@ func InitFolder() error {
 
 	for _, category := range CHALLENGE_CATEGORY {
 		categoryPath := filepath.Join(dir, category)
-		if _, err := os.Stat(categoryPath); os.IsNotExist(err) {
-			if err := os.Mkdir(categoryPath, os.ModePerm); err != nil {
-				return err
-			}
-
-			if _, err := os.Create(filepath.Join(categoryPath, ".gitkeep")); err != nil {
-				return err
-			}
+		if err := createCategoryFolder(categoryPath); err != nil {
+			return err
 		}
 	}
 
-	if err := copyAllEmbedFileIntoFolder("embeds/config", dir); err != nil {
+	return copyAllEmbedFileIntoFolder("embeds/config", dir)
+}
+
+func createCategoryFolder(categoryPath string) error {
+	if _, err := os.Stat(categoryPath); os.IsNotExist(err) {
+		if err := os.Mkdir(categoryPath, os.ModePerm); err != nil {
+			return err
+		}
+		_, err = os.Create(filepath.Join(categoryPath, ".gitkeep"))
 		return err
 	}
-
 	return nil
 }
 
-func RemoveAllEvent() error {
-	config, err := GetConfig()
-	if err != nil {
-		return err
-	}
-
-	client, err := gzapi.Init(config.Url, &config.Creds)
-	if err != nil {
-		return err
-	}
-
-	games, err := client.GetGames()
+func (gz *GZ) RemoveAllEvent() error {
+	games, err := api.GetGames()
 	if err != nil {
 		return err
 	}
@@ -94,7 +109,50 @@ func RemoveAllEvent() error {
 	return nil
 }
 
-func Sync() error {
+func (gz *GZ) Scoreboard2CTFTimeFeed() (*CTFTimeFeed, error) {
+	config, err := GetConfig()
+	if err != nil {
+		return nil, err
+	}
+	scoreboard, err := config.Event.GetScoreboard()
+	if err != nil {
+		return nil, fmt.Errorf("get scoreboard: %v", err)
+	}
+
+	var ctfTimeFeed CTFTimeFeed
+	for _, item := range scoreboard.Items {
+		ctfTimeFeed.Standings = append(ctfTimeFeed.Standings, Standing{
+			Pos:   item.Rank,
+			Team:  item.Name,
+			Score: item.Score,
+		})
+	}
+
+	for category, items := range scoreboard.Challenges {
+		for _, item := range items {
+			ctfTimeFeed.Tasks = append(ctfTimeFeed.Tasks, fmt.Sprintf("%s - %s", category, item.Title))
+		}
+	}
+	return &ctfTimeFeed, nil
+}
+
+func (gz *GZ) RunScript(script string) error {
+	challengesConf, err := GetChallengesYaml()
+	if err != nil {
+		return err
+	}
+
+	for _, challengeConf := range challengesConf {
+		if _, ok := challengeConf.Scripts[script]; ok {
+			if err := runScript(challengeConf, script); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (gz *GZ) Sync() error {
 	config, err := GetConfig()
 	if err != nil {
 		return err
@@ -105,81 +163,27 @@ func Sync() error {
 		return err
 	}
 
-	client, err := gzapi.Init(config.Url, &config.Creds)
+	games, err := api.GetGames()
 	if err != nil {
 		return err
 	}
 
-	games, err := client.GetGames()
-	if err != nil {
-		return err
-	}
-
-	var currentGame *gzapi.Game
-	for _, game := range games {
-		if game.Title == config.Event.Title {
-			currentGame = &game
-			break
-		}
-	}
-
+	currentGame := findCurrentGame(games, config.Event.Title)
 	if currentGame == nil {
-		log.Info("Create new game")
-		event := gzapi.CreateGameForm{
-			Title: config.Event.Title,
-			Start: config.Event.Start,
-			End:   config.Event.End,
-		}
-		game, err := client.CreateGame(event)
+		_, err = createNewGame(config)
 		if err != nil {
-			return err
-		}
-		if config.Event.Poster == "" {
-			return fmt.Errorf("poster is required")
-		}
-
-		poster, err := createPosterIfNotExistOrDifferent(config.Event.Poster, game)
-		if err != nil {
-			return err
-		}
-
-		config.Event.Id = game.Id
-		config.Event.PublicKey = game.PublicKey
-		config.Event.Poster = poster
-		if err := game.Update(&config.Event); err != nil {
-			return err
-		}
-		if err := setCache("config", config); err != nil {
 			return err
 		}
 	} else {
-		poster, err := createPosterIfNotExistOrDifferent(config.Event.Poster, currentGame)
+		err = updateGameIfNeeded(config, currentGame)
 		if err != nil {
 			return err
 		}
-		config.Event.Poster = poster
-		if fmt.Sprintf("%v", config.Event) != fmt.Sprintf("%v", *currentGame) {
-			log.Info("Updated %s game", config.Event.Title)
-
-			config.Event.Id = currentGame.Id
-			config.Event.PublicKey = currentGame.PublicKey
-
-			if err := currentGame.Update(&config.Event); err != nil {
-				return err
-			}
-			if err := setCache("config", config); err != nil {
-				return err
-			}
-		}
 	}
-	for _, challengeConf := range challengesConf {
-		if challengeConf.Type == "" {
-			challengeConf.Type = "StaticAttachments"
-		}
 
-		if err := isGoodChallenge(challengeConf); err != nil {
-			return err
-		}
+	err = validateChallenges(challengesConf)
+	if err != nil {
+		return err
 	}
 
 	challenges, err := config.Event.GetChallenges()
@@ -188,113 +192,7 @@ func Sync() error {
 	}
 
 	for _, challengeConf := range challengesConf {
-		var challengeData *gzapi.Challenge
-		if !isChallengeExist(challengeConf.Name, challenges) {
-			log.Info("Create challenge %s", challengeConf.Name)
-			challengeData, err = config.Event.CreateChallenge(gzapi.CreateChallengeForm{
-				Title: challengeConf.Name,
-				Tag:   challengeConf.Tag,
-				Type:  challengeConf.Type,
-			})
-			if err != nil {
-				return fmt.Errorf("create challenge %s: %v", challengeConf.Name, err)
-			}
-		} else {
-			log.Info("Update challenge %s", challengeConf.Name)
-			if err := GetCache(challengeConf.Tag+"/"+challengeConf.Name+"/challenge", &challengeData); err != nil {
-				challengeData, err = config.Event.GetChallenge(challengeConf.Name)
-				if err != nil {
-					return fmt.Errorf("get challenge %s: %v", challengeConf.Name, err)
-				}
-			}
-		}
-		if challengeConf.Provide != nil {
-			if regexp.MustCompile(`^http(s|)://`).MatchString(*challengeConf.Provide) {
-				log.Info("Create remote attachment for %s", challengeConf.Name)
-				if err := challengeData.CreateAttachment(gzapi.CreateAttachmentForm{
-					AttachmentType: "Remote",
-					RemoteUrl:      *challengeConf.Provide,
-				}); err != nil {
-					return err
-				}
-			} else {
-				log.Info("Create local attachment for %s", challengeConf.Name)
-				zipFilename := hashString(*challengeConf.Provide) + ".zip"
-				zipOutput := filepath.Join(challengeConf.Cwd, zipFilename)
-				if info, err := os.Stat(filepath.Join(challengeConf.Cwd, *challengeConf.Provide)); err != nil || info.IsDir() {
-					log.Info("Zip attachment for %s", challengeConf.Name)
-					zipInput := filepath.Join(challengeConf.Cwd, *challengeConf.Provide)
-					if err := zipSource(zipInput, zipOutput); err != nil {
-						return err
-					}
-					challengeConf.Provide = &zipFilename
-				}
-				fileinfo, err := createAssetsIfNotExistOrDifferent(filepath.Join(challengeConf.Cwd, *challengeConf.Provide))
-				if err != nil {
-					return err
-				}
-
-				if challengeData.Attachment != nil && strings.Contains(challengeData.Attachment.Url, fileinfo.Hash) {
-					log.Info("Attachment for %s is the same...", challengeConf.Name)
-				} else {
-					log.Info("Update attachment for %s", challengeConf.Name)
-					if err := challengeData.CreateAttachment(gzapi.CreateAttachmentForm{
-						AttachmentType: "Local",
-						FileHash:       fileinfo.Hash,
-					}); err != nil {
-						return err
-					}
-				}
-				os.Remove(zipOutput)
-			}
-		} else {
-			if challengeData.Attachment != nil {
-				log.Info("Delete attachment for %s", challengeConf.Name)
-				if err := challengeData.CreateAttachment(gzapi.CreateAttachmentForm{
-					AttachmentType: "None",
-				}); err != nil {
-					return err
-				}
-			}
-		}
-
-		challengeData, err = config.Event.GetChallenge(challengeConf.Name)
-		if err != nil {
-			return err
-		}
-
-		for _, flag := range challengeData.Flags {
-			if !isExistInArray(flag.Flag, challengeConf.Flags) {
-				flag.GameId = config.Event.Id
-				flag.ChallengeId = challengeData.Id
-				if err := flag.Delete(); err != nil {
-					return err
-				}
-			}
-		}
-
-		for _, flag := range challengeConf.Flags {
-			if !isFlagExist(flag, challengeData.Flags) {
-				if err := challengeData.CreateFlag(gzapi.CreateFlagForm{
-					Flag: flag,
-				}); err != nil {
-					return err
-				}
-			}
-		}
-
-		mergeChallengeData(&challengeConf, challengeData)
-
-		if !isConfigEdited(&challengeConf, challengeData) {
-			log.Info("Challenge %s is the same...", challengeConf.Name)
-			continue
-		}
-
-		if err := challengeData.Update(*challengeData); err != nil {
-			return err
-		}
-
-		if err := setCache(challengeData.Tag+"/"+challengeConf.Name+"/challenge", challengeData); err != nil {
+		if err := syncChallenge(config, challengeConf, challenges); err != nil {
 			return err
 		}
 	}

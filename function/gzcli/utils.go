@@ -185,7 +185,7 @@ func isConfigEdited(challengeConf *ChallengeYaml, challengeData *gzapi.Challenge
 	return true
 }
 
-func mergeChallengeData(challengeConf *ChallengeYaml, challengeData *gzapi.Challenge) {
+func mergeChallengeData(challengeConf *ChallengeYaml, challengeData *gzapi.Challenge) *gzapi.Challenge {
 	challengeData.Title = challengeConf.Name
 	challengeData.Tag = challengeConf.Tag
 	challengeData.Content = "Author: **" + challengeConf.Author + "**\n\n" + challengeConf.Description
@@ -214,4 +214,6 @@ func mergeChallengeData(challengeConf *ChallengeYaml, challengeData *gzapi.Chall
 		challengeData.MinScoreRate = 0.10
 	}
 	challengeData.Difficulty = 5
+	challengeData.IsEnabled = nil
+	return challengeData
 }

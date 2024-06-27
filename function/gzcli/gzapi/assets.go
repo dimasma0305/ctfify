@@ -5,7 +5,7 @@ type FileInfo struct {
 	Name string `json:"name"`
 }
 
-func (cs *gzapi) CreateAssets(file string) ([]FileInfo, error) {
+func (cs *API) CreateAssets(file string) ([]FileInfo, error) {
 	var fileInfo []FileInfo
 	if err := cs.postMultiPart("/api/assets", file, &fileInfo); err != nil {
 		return nil, err
@@ -13,7 +13,7 @@ func (cs *gzapi) CreateAssets(file string) ([]FileInfo, error) {
 	return fileInfo, nil
 }
 
-func (cs *gzapi) GetAssets() ([]FileInfo, error) {
+func (cs *API) GetAssets() ([]FileInfo, error) {
 	var data struct {
 		Data []FileInfo `json:"data"`
 	}

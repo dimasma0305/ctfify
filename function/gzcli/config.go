@@ -33,6 +33,15 @@ func GetConfig() (*Config, error) {
 	if err := GetCache("config", &configCache); err == nil {
 		config.Event.Id = configCache.Event.Id
 		config.Event.PublicKey = configCache.Event.PublicKey
+	} else {
+		if api != nil {
+			game, err := api.GetGameByTitle(config.Event.Title)
+			if err != nil {
+				return nil, err
+			}
+			config.Event.Id = game.Id
+			config.Event.PublicKey = game.PublicKey
+		}
 	}
 	return &config, nil
 }

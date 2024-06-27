@@ -10,8 +10,6 @@ flag:
 
 value: 1000
 
-visible: true
-
 provide: "./dist"
 hints:
  - fooflag

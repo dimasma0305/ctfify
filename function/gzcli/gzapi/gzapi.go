@@ -12,34 +12,30 @@ type Creds struct {
 	Password string `json:"password" yaml:"password"`
 }
 
-type gzapi struct {
+type API struct {
 	url    string
 	creds  *Creds
 	client *req.Client
 }
 
-var client *gzapi
+var client *API
 
-func Init(url string, creds *Creds) (*gzapi, error) {
+func Init(url string, creds *Creds) (*API, error) {
 	url = strings.TrimRight(url, "/")
-	newGz := New(url, creds)
+	newGz := &API{
+		client: req.C().
+			SetUserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0"),
+		url:   url,
+		creds: creds,
+	}
+	client = newGz
 	if err := newGz.login(); err != nil {
 		return nil, err
 	}
 	return newGz, nil
 }
 
-func New(url string, creds *Creds) *gzapi {
-	client = &gzapi{
-		client: req.C().
-			SetUserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0"),
-		url:   url,
-		creds: creds,
-	}
-	return client
-}
-
-func (cs *gzapi) get(url string, data any) error {
+func (cs *API) get(url string, data any) error {
 	url = client.url + url
 	req, err := cs.client.R().Get(url)
 	if err != nil {
@@ -56,7 +52,7 @@ func (cs *gzapi) get(url string, data any) error {
 	return nil
 }
 
-func (cs *gzapi) delete(url string, data any) error {
+func (cs *API) delete(url string, data any) error {
 	url = client.url + url
 	req, err := cs.client.R().Delete(url)
 	if err != nil {
@@ -73,7 +69,7 @@ func (cs *gzapi) delete(url string, data any) error {
 	return nil
 }
 
-func (cs *gzapi) post(url string, json any, data any) error {
+func (cs *API) post(url string, json any, data any) error {
 	url = client.url + url
 	req, err := cs.client.R().SetBodyJsonMarshal(json).Post(url)
 	if err != nil {
@@ -90,7 +86,7 @@ func (cs *gzapi) post(url string, json any, data any) error {
 	return nil
 }
 
-func (cs *gzapi) postMultiPart(url string, file string, data any) error {
+func (cs *API) postMultiPart(url string, file string, data any) error {
 	url = client.url + url
 	req, err := cs.client.R().SetFile("files", file).Post(url)
 	if err != nil {
@@ -107,7 +103,7 @@ func (cs *gzapi) postMultiPart(url string, file string, data any) error {
 	return nil
 }
 
-func (cs *gzapi) putMultiPart(url string, file string, data any) error {
+func (cs *API) putMultiPart(url string, file string, data any) error {
 	url = client.url + url
 	req, err := cs.client.R().SetFile("file", file).Put(url)
 	if err != nil {
@@ -124,7 +120,7 @@ func (cs *gzapi) putMultiPart(url string, file string, data any) error {
 	return nil
 }
 
-func (cs *gzapi) put(url string, json any, data any) error {
+func (cs *API) put(url string, json any, data any) error {
 	url = client.url + url
 	req, err := cs.client.R().SetBodyJsonMarshal(json).Put(url)
 	if err != nil {
@@ -141,7 +137,7 @@ func (cs *gzapi) put(url string, json any, data any) error {
 	return nil
 }
 
-func (cs *gzapi) login() error {
+func (cs *API) login() error {
 	if err := cs.post("/api/account/login", cs.creds, nil); err != nil {
 		return err
 	}

@@ -27,7 +27,7 @@ type Game struct {
 	BloodBonus           int       `json:"bloodBonus" yaml:"bloodBonus"`
 }
 
-func (cs *gzapi) GetGames() ([]Game, error) {
+func (cs *API) GetGames() ([]Game, error) {
 	var data struct {
 		Data []Game `json:"data"`
 	}
@@ -37,12 +37,26 @@ func (cs *gzapi) GetGames() ([]Game, error) {
 	return data.Data, nil
 }
 
-func (cs *gzapi) GetGame(id int) (*Game, error) {
+func (cs *API) GetGameById(id int) (*Game, error) {
 	var data *Game
 	if err := cs.get(fmt.Sprintf("/api/edit/games/%d", id), &data); err != nil {
 		return nil, err
 	}
 	return data, nil
+}
+
+func (cs *API) GetGameByTitle(title string) (*Game, error) {
+	var games []Game
+	games, err := cs.GetGames()
+	if err != nil {
+		return nil, err
+	}
+	for _, game := range games {
+		if game.Title == title {
+			return &game, nil
+		}
+	}
+	return nil, fmt.Errorf("game not found")
 }
 
 func (g *Game) Delete() error {
@@ -67,7 +81,7 @@ type CreateGameForm struct {
 	End   time.Time `json:"end"`
 }
 
-func (cs *gzapi) CreateGame(game CreateGameForm) (*Game, error) {
+func (cs *API) CreateGame(game CreateGameForm) (*Game, error) {
 	var data *Game
 	game.Start = game.Start.UTC()
 	game.End = game.End.UTC()

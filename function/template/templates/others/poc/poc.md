@@ -11,8 +11,8 @@ After installing the plugin you can visit this html to trigger the XSS:
 ```
 # Additional Information
 ## Environment
-Wordpress: 6.4.2
-PHP: php:7.4-fpm
+Wordpress: 6.5.2
+PHP: php:8.1-fpm
 This POC use nginx configuration from https://github.com/dimasma0305/dockerized-wordpress-debug-setup
 
 > Note: You can see my video below for demonstration.
