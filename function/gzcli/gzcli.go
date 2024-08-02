@@ -67,6 +67,10 @@ func Init() (*GZ, error) {
 	return &GZ{}, nil
 }
 
+func New() *GZ {
+	return &GZ{}
+}
+
 func (gz *GZ) InitFolder() error {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -76,7 +80,7 @@ func (gz *GZ) InitFolder() error {
 	for _, category := range CHALLENGE_CATEGORY {
 		categoryPath := filepath.Join(dir, category)
 		if err := createCategoryFolder(categoryPath); err != nil {
-			return err
+			return fmt.Errorf("create category folder: %v", err)
 		}
 	}
 
@@ -169,16 +173,10 @@ func (gz *GZ) Sync() error {
 	}
 
 	currentGame := findCurrentGame(games, config.Event.Title)
-	if currentGame == nil {
-		_, err = createNewGame(config)
-		if err != nil {
-			return err
-		}
-	} else {
-		err = updateGameIfNeeded(config, currentGame)
-		if err != nil {
-			return err
-		}
+
+	err = updateGameIfNeeded(config, currentGame)
+	if err != nil {
+		return err
 	}
 
 	err = validateChallenges(challengesConf)

@@ -117,14 +117,24 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 
 	err = updateChallengeFlags(config, challengeConf, challengeData)
 	if err != nil {
-		return err
+		return fmt.Errorf("update flags for %s: %v", challengeConf.Name, err)
 	}
 
 	challengeData = mergeChallengeData(&challengeConf, challengeData)
 	if isConfigEdited(&challengeConf, challengeData) {
-		if err := challengeData.Update(*challengeData); err != nil {
-			return err
+		if challengeData, err = challengeData.Update(*challengeData); err != nil {
+			if strings.Contains(err.Error(), "404") {
+				challengeData, err = config.Event.GetChallenge(challengeConf.Name)
+				if err != nil {
+					return fmt.Errorf("get challenge %s: %v", challengeConf.Name, err)
+				}
+				challengeData, err = challengeData.Update(*challengeData)
+				if err != nil {
+					return fmt.Errorf("update challenge %s: %v", challengeConf.Name, err)
+				}
+			}
 		}
+		fmt.Println(challengeData.Flags)
 
 		if err := setCache(challengeData.Tag+"/"+challengeConf.Name+"/challenge", challengeData); err != nil {
 			return err
@@ -202,6 +212,8 @@ func updateChallengeFlags(config *Config, challengeConf ChallengeYaml, challenge
 		}
 	}
 
+	isCreatingNewFlag := false
+
 	for _, flag := range challengeConf.Flags {
 		if !isFlagExist(flag, challengeData.Flags) {
 			if err := challengeData.CreateFlag(gzapi.CreateFlagForm{
@@ -209,8 +221,18 @@ func updateChallengeFlags(config *Config, challengeConf ChallengeYaml, challenge
 			}); err != nil {
 				return err
 			}
+			isCreatingNewFlag = true
 		}
 	}
+
+	if isCreatingNewFlag {
+		newChallData, err := challengeData.Refresh()
+		if err != nil {
+			return err
+		}
+		challengeData.Flags = newChallData.Flags
+	}
+
 	return nil
 }
 

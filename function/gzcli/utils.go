@@ -72,8 +72,16 @@ func isGoodChallenge(challenge ChallengeYaml) error {
 	}
 
 	if len(challenge.Flags) == 0 {
-		badChallenge = true
-		log.Error("challenge must have at least one flag")
+		if challenge.Type == "StaticAttachment" || challenge.Type == "StaticContainer" {
+			badChallenge = true
+			log.Error("challenge must have at least one flag")
+		}
+		if challenge.Type == "DynamicContainer" {
+			if challenge.Container.FlagTemplate == "" {
+				badChallenge = true
+				log.Error("challenge must have a flag template")
+			}
+		}
 	}
 
 	if badChallenge {
@@ -195,14 +203,19 @@ func mergeChallengeData(challengeConf *ChallengeYaml, challengeData *gzapi.Chall
 	challengeData.FileName = "attachment"
 	challengeData.FlagTemplate = challengeConf.Container.FlagTemplate
 	challengeData.ContainerImage = challengeConf.Container.ContainerImage
-	if challengeConf.Container.MemoryLimit == 0 {
-		challengeConf.Container.MemoryLimit = 128
+
+	challengeData.MemoryLimit = challengeConf.Container.MemoryLimit
+	challengeData.CpuCount = challengeConf.Container.CpuCount
+	challengeData.StorageLimit = challengeConf.Container.StorageLimit
+
+	if challengeData.MemoryLimit == 0 {
+		challengeData.MemoryLimit = 128
 	}
-	if challengeConf.Container.CpuCount == 0 {
-		challengeConf.Container.CpuCount = 1
+	if challengeData.CpuCount == 0 {
+		challengeData.CpuCount = 1
 	}
-	if challengeConf.Container.StorageLimit == 0 {
-		challengeConf.Container.StorageLimit = 128
+	if challengeData.StorageLimit == 0 {
+		challengeData.StorageLimit = 128
 	}
 	challengeData.ContainerExposePort = challengeConf.Container.ContainerExposePort
 	challengeData.EnableTrafficCapture = challengeConf.Container.EnableTrafficCapture

@@ -35,8 +35,20 @@ func (c *Challenge) Delete() error {
 	return client.delete(fmt.Sprintf("/api/edit/games/%d/challenges/%d", c.GameId, c.Id), nil)
 }
 
-func (c *Challenge) Update(challenge Challenge) error {
-	return client.put(fmt.Sprintf("/api/edit/games/%d/challenges/%d", c.GameId, c.Id), challenge, nil)
+func (c *Challenge) Update(challenge Challenge) (*Challenge, error) {
+	if err := client.put(fmt.Sprintf("/api/edit/games/%d/challenges/%d", c.GameId, c.Id), &challenge, nil); err != nil {
+		return nil, err
+	}
+	return &challenge, nil
+}
+
+func (c *Challenge) Refresh() (*Challenge, error) {
+	var data Challenge
+	if err := client.get(fmt.Sprintf("/api/edit/games/%d/challenges/%d", c.GameId, c.Id), &data); err != nil {
+		return nil, err
+	}
+	data.GameId = c.GameId
+	return &data, nil
 }
 
 type CreateChallengeForm struct {

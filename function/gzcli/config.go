@@ -37,7 +37,10 @@ func GetConfig() (*Config, error) {
 		if api != nil {
 			game, err := api.GetGameByTitle(config.Event.Title)
 			if err != nil {
-				return nil, err
+				game, err = createNewGame(&config)
+				if err != nil {
+					return nil, err
+				}
 			}
 			config.Event.Id = game.Id
 			config.Event.PublicKey = game.PublicKey

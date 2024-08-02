@@ -21,11 +21,6 @@ var gzcliCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		var gz *gzcli.GZ
 		var err error
-		gz, err = gzcli.Init()
-		if err != nil {
-			log.Fatal(err)
-		}
-
 		if init, _ := cmd.Flags().GetBool("init"); init {
 			if err := gz.InitFolder(); err != nil {
 				log.Fatal(err)
@@ -34,6 +29,9 @@ var gzcliCmd = &cobra.Command{
 		}
 
 		if sync, _ := cmd.Flags().GetBool("sync"); sync {
+			if gz, err = gzcli.Init(); err != nil {
+				log.Fatal(err)
+			}
 			if err := gz.Sync(); err != nil {
 				log.Fatal(err)
 			}
@@ -41,6 +39,9 @@ var gzcliCmd = &cobra.Command{
 		}
 
 		if ctftime, _ := cmd.Flags().GetBool("ctftime-scoreboard"); ctftime {
+			if gz, err = gzcli.Init(); err != nil {
+				log.Fatal(err)
+			}
 			feed, err := gz.Scoreboard2CTFTimeFeed()
 			if err != nil {
 				log.Fatal(err)

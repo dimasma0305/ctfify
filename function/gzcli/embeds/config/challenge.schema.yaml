@@ -39,17 +39,23 @@ properties:
     items:
       type: string
   scripts:
-    type: array
-    description: An array of scripts to run for the CTF challenge.
-    items:
-      type: string
+    type: object
+    description: An object containing scripts for the CTF challenge.
+    properties:
+      start:
+        type: string
+        description: The script to start the CTF challenge.
+      stop:
+        type: string
+        description: The script to stop the CTF challenge.
   container:
     type: object
     description: Configuration details for container-based challenges.
     properties:
       flagTemplate:
         type: string
-        description: The template for generating dynamic flags.
+        description: |
+          The template for generating dynamic flags. For example you can see at https://docs.ctf.gzti.me/guide/dynamic-flag#examples
       containerImage:
         type: string
         description: The Docker image used for the challenge container.
@@ -83,7 +89,6 @@ required:
   - name
   - author
   - description
-  - flags
   - value
   - type
 allOf:

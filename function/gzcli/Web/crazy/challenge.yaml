@@ -16,4 +16,5 @@ provide: "./testing/"
 hints:
  - fooflags
 
-
+scripts:
+  start: ls
