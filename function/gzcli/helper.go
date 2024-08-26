@@ -103,12 +103,14 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 		}
 	} else {
 		log.Info("Update challenge %s", challengeConf.Name)
-		if err := GetCache(challengeConf.Tag+"/"+challengeConf.Name+"/challenge", &challengeData); err != nil {
+		if err = GetCache(challengeConf.Tag+"/"+challengeConf.Name+"/challenge", &challengeData); err != nil {
 			challengeData, err = config.Event.GetChallenge(challengeConf.Name)
 			if err != nil {
 				return fmt.Errorf("get challenge %s: %v", challengeConf.Name, err)
 			}
 		}
+		// fix bug nill pointer because cache didn't return gzapi
+		challengeData.CS = api
 	}
 
 	err = handleChallengeAttachments(challengeConf, challengeData, api)

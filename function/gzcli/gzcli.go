@@ -211,7 +211,6 @@ func (gz *GZ) Sync() error {
 	}
 
 	config.Event.CS = gz.api
-
 	challenges, err := config.Event.GetChallenges()
 	if err != nil {
 		return err
