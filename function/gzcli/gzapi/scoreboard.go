@@ -23,7 +23,7 @@ type Scoreboard struct {
 
 func (g *Game) GetScoreboard() (*Scoreboard, error) {
 	var scoreboard Scoreboard
-	err := client.get(fmt.Sprintf("/api/game/%d/scoreboard", g.Id), &scoreboard)
+	err := g.CS.get(fmt.Sprintf("/api/game/%d/scoreboard", g.Id), &scoreboard)
 	if err != nil {
 		return nil, err
 	}

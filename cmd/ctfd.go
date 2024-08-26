@@ -38,6 +38,7 @@ var ctfdCmd = &cobra.Command{
 			Username: creds.username,
 			Password: creds.password,
 		})
+
 		if err != nil {
 			log.Fatal(err)
 		}

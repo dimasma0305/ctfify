@@ -25,51 +25,56 @@ type Game struct {
 	WriteupDeadline      time.Time `json:"writeupDeadline,omitempty" yaml:"writeupDeadline,omitempty"`
 	WriteupNote          string    `json:"writeupNote" yaml:"writeupNote"`
 	BloodBonus           int       `json:"bloodBonus" yaml:"bloodBonus"`
+	CS                   *GZAPI    `json:"-" yaml:"-"`
 }
 
-func (cs *API) GetGames() ([]Game, error) {
+func (cs *GZAPI) GetGames() ([]*Game, error) {
 	var data struct {
-		Data []Game `json:"data"`
+		Data []*Game `json:"data"`
 	}
 	if err := cs.get("/api/edit/games?count=9999&skip=0", &data); err != nil {
 		return nil, err
 	}
+	for _, game := range data.Data {
+		game.CS = cs
+	}
 	return data.Data, nil
 }
 
-func (cs *API) GetGameById(id int) (*Game, error) {
+func (cs *GZAPI) GetGameById(id int) (*Game, error) {
 	var data *Game
 	if err := cs.get(fmt.Sprintf("/api/edit/games/%d", id), &data); err != nil {
 		return nil, err
 	}
+	data.CS = cs
 	return data, nil
 }
 
-func (cs *API) GetGameByTitle(title string) (*Game, error) {
-	var games []Game
+func (cs *GZAPI) GetGameByTitle(title string) (*Game, error) {
+	var games []*Game
 	games, err := cs.GetGames()
 	if err != nil {
 		return nil, err
 	}
 	for _, game := range games {
 		if game.Title == title {
-			return &game, nil
+			return game, nil
 		}
 	}
 	return nil, fmt.Errorf("game not found")
 }
 
 func (g *Game) Delete() error {
-	return client.delete(fmt.Sprintf("/api/edit/games/%d", g.Id), nil)
+	return g.CS.delete(fmt.Sprintf("/api/edit/games/%d", g.Id), nil)
 }
 
 func (g *Game) Update(game *Game) error {
-	return client.put(fmt.Sprintf("/api/edit/games/%d", g.Id), game, nil)
+	return g.CS.put(fmt.Sprintf("/api/edit/games/%d", g.Id), game, nil)
 }
 
 func (g *Game) UploadPoster(poster string) (string, error) {
 	var path string
-	if err := client.putMultiPart(fmt.Sprintf("/api/edit/games/%d/poster", g.Id), poster, &path); err != nil {
+	if err := g.CS.putMultiPart(fmt.Sprintf("/api/edit/games/%d/poster", g.Id), poster, &path); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -81,12 +86,13 @@ type CreateGameForm struct {
 	End   time.Time `json:"end"`
 }
 
-func (cs *API) CreateGame(game CreateGameForm) (*Game, error) {
+func (cs *GZAPI) CreateGame(game CreateGameForm) (*Game, error) {
 	var data *Game
 	game.Start = game.Start.UTC()
 	game.End = game.End.UTC()
 	if err := cs.post("/api/edit/games", game, &data); err != nil {
 		return nil, err
 	}
+	data.CS = cs
 	return data, nil
 }

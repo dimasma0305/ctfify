@@ -53,3 +53,24 @@ func GetCache(key string, data any) error {
 
 	return nil
 }
+
+// DeleteCache deletes the cache file associated with the given key.
+func DeleteCache(key string) error {
+	dir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	cachePath := filepath.Join(dir, ".gzcli", key+".yaml")
+
+	// Check if the cache file exists
+	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
+		return fmt.Errorf("cache not found for key: %s", key)
+	}
+
+	// Delete the cache file
+	if err := os.Remove(cachePath); err != nil {
+		return fmt.Errorf("error deleting cache file: %w", err)
+	}
+
+	return nil
+}

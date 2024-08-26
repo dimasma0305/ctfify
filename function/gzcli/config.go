@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
 )
 
 const (
@@ -18,7 +20,7 @@ var (
 	}
 )
 
-func GetConfig() (*Config, error) {
+func GetConfig(api *gzapi.GZAPI) (*Config, error) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -34,10 +36,10 @@ func GetConfig() (*Config, error) {
 		config.Event.Id = configCache.Event.Id
 		config.Event.PublicKey = configCache.Event.PublicKey
 	} else {
-		if api != nil {
+		if api != nil && api.Client != nil {
 			game, err := api.GetGameByTitle(config.Event.Title)
 			if err != nil {
-				game, err = createNewGame(&config)
+				game, err = createNewGame(&config, api)
 				if err != nil {
 					return nil, err
 				}

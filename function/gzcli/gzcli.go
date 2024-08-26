@@ -3,9 +3,11 @@ package gzcli
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
+	"github.com/dimasma0305/ctfify/function/log"
 )
 
 type Config struct {
@@ -51,24 +53,43 @@ type CTFTimeFeed struct {
 	Standings []Standing `json:"standings"`
 }
 
-type GZ struct{}
-
-var api *gzapi.API
-
-func Init() (*GZ, error) {
-	config, err := GetConfig()
-	if err != nil {
-		return nil, err
-	}
-	api, err = gzapi.Init(config.Url, &config.Creds)
-	if err != nil {
-		return nil, err
-	}
-	return &GZ{}, nil
+type GZ struct {
+	api *gzapi.GZAPI
 }
 
-func New() *GZ {
-	return &GZ{}
+func Init() (*GZ, error) {
+	config, err := GetConfig(&gzapi.GZAPI{})
+	if err != nil {
+		return nil, fmt.Errorf("error getting the config")
+	}
+	api, err := gzapi.Init(config.Url, &config.Creds)
+	if err != nil {
+		log.Error("Failed to login, try to register the account")
+		if api, err = gzapi.Register(config.Url, &gzapi.RegisterForm{
+			Email:    "admin@localhost",
+			Username: config.Creds.Username,
+			Password: config.Creds.Password,
+		}); err != nil {
+			log.Error("failed registering the account")
+		}
+
+		cmd := exec.Command(
+			"sudo", "docker", "compose", "exec", "-T", "db", "psql",
+			"--user", "postgres",
+			"-d", "gzctf",
+			"-c", fmt.Sprintf(`UPDATE "AspNetUsers" SET "Role"=3 WHERE "UserName"='%s';`, config.Creds.Username),
+		)
+		cmd.Dir, _ = os.Getwd()
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			log.Error("failed to change user role locally, please run manually")
+			return nil, err
+		}
+	}
+	return &GZ{
+		api: api,
+	}, nil
 }
 
 func (gz *GZ) InitFolder() error {
@@ -99,7 +120,7 @@ func createCategoryFolder(categoryPath string) error {
 }
 
 func (gz *GZ) RemoveAllEvent() error {
-	games, err := api.GetGames()
+	games, err := gz.api.GetGames()
 	if err != nil {
 		return err
 	}
@@ -114,7 +135,7 @@ func (gz *GZ) RemoveAllEvent() error {
 }
 
 func (gz *GZ) Scoreboard2CTFTimeFeed() (*CTFTimeFeed, error) {
-	config, err := GetConfig()
+	config, err := GetConfig(gz.api)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +178,7 @@ func (gz *GZ) RunScript(script string) error {
 }
 
 func (gz *GZ) Sync() error {
-	config, err := GetConfig()
+	config, err := GetConfig(gz.api)
 	if err != nil {
 		return err
 	}
@@ -167,14 +188,19 @@ func (gz *GZ) Sync() error {
 		return err
 	}
 
-	games, err := api.GetGames()
+	games, err := gz.api.GetGames()
 	if err != nil {
 		return err
 	}
 
-	currentGame := findCurrentGame(games, config.Event.Title)
+	currentGame := findCurrentGame(games, config.Event.Title, gz.api)
 
-	err = updateGameIfNeeded(config, currentGame)
+	if currentGame == nil {
+		DeleteCache("config")
+		return gz.Sync()
+	}
+
+	err = updateGameIfNeeded(config, currentGame, gz.api)
 	if err != nil {
 		return err
 	}
@@ -184,13 +210,15 @@ func (gz *GZ) Sync() error {
 		return err
 	}
 
+	config.Event.CS = gz.api
+
 	challenges, err := config.Event.GetChallenges()
 	if err != nil {
 		return err
 	}
 
 	for _, challengeConf := range challengesConf {
-		if err := syncChallenge(config, challengeConf, challenges); err != nil {
+		if err := syncChallenge(config, challengeConf, challenges, gz.api); err != nil {
 			return err
 		}
 	}

@@ -29,14 +29,15 @@ type Challenge struct {
 	MinScoreRate         float64     `json:"minScoreRate" yaml:"minScoreRate"`
 	Difficulty           float64     `json:"difficulty" yaml:"difficulty"`
 	GameId               int         `json:"-" yaml:"gameId"`
+	CS                   *GZAPI      `json:"-" yaml:"-"`
 }
 
 func (c *Challenge) Delete() error {
-	return client.delete(fmt.Sprintf("/api/edit/games/%d/challenges/%d", c.GameId, c.Id), nil)
+	return c.CS.delete(fmt.Sprintf("/api/edit/games/%d/challenges/%d", c.GameId, c.Id), nil)
 }
 
 func (c *Challenge) Update(challenge Challenge) (*Challenge, error) {
-	if err := client.put(fmt.Sprintf("/api/edit/games/%d/challenges/%d", c.GameId, c.Id), &challenge, nil); err != nil {
+	if err := c.CS.put(fmt.Sprintf("/api/edit/games/%d/challenges/%d", c.GameId, c.Id), &challenge, nil); err != nil {
 		return nil, err
 	}
 	return &challenge, nil
@@ -44,10 +45,11 @@ func (c *Challenge) Update(challenge Challenge) (*Challenge, error) {
 
 func (c *Challenge) Refresh() (*Challenge, error) {
 	var data Challenge
-	if err := client.get(fmt.Sprintf("/api/edit/games/%d/challenges/%d", c.GameId, c.Id), &data); err != nil {
+	if err := c.CS.get(fmt.Sprintf("/api/edit/games/%d/challenges/%d", c.GameId, c.Id), &data); err != nil {
 		return nil, err
 	}
 	data.GameId = c.GameId
+	data.CS = c.CS
 	return &data, nil
 }
 
@@ -59,17 +61,18 @@ type CreateChallengeForm struct {
 
 func (g *Game) CreateChallenge(challenge CreateChallengeForm) (*Challenge, error) {
 	var data *Challenge
-	if err := client.post(fmt.Sprintf("/api/edit/games/%d/challenges", g.Id), challenge, &data); err != nil {
+	if err := g.CS.post(fmt.Sprintf("/api/edit/games/%d/challenges", g.Id), challenge, &data); err != nil {
 		return nil, err
 	}
 	data.GameId = g.Id
+	data.CS = g.CS
 	return data, nil
 }
 
 func (g *Game) GetChallenges() ([]Challenge, error) {
 	var tmp []Challenge
 	var data []Challenge
-	if err := client.get(fmt.Sprintf("/api/edit/games/%d/challenges", g.Id), &tmp); err != nil {
+	if err := g.CS.get(fmt.Sprintf("/api/edit/games/%d/challenges", g.Id), &tmp); err != nil {
 		return nil, err
 	}
 	var wg sync.WaitGroup
@@ -80,10 +83,11 @@ func (g *Game) GetChallenges() ([]Challenge, error) {
 		go func(i int) {
 			defer wg.Done()
 			var c Challenge
-			if err := client.get(fmt.Sprintf("/api/edit/games/%d/challenges/%d", g.Id, tmp[i].Id), &c); err != nil {
+			if err := g.CS.get(fmt.Sprintf("/api/edit/games/%d/challenges/%d", g.Id, tmp[i].Id), &c); err != nil {
 				return
 			}
 			c.GameId = g.Id
+			c.CS = g.CS
 
 			mu.Lock()
 			data = append(data, c)
@@ -96,7 +100,7 @@ func (g *Game) GetChallenges() ([]Challenge, error) {
 
 func (g *Game) GetChallenge(name string) (*Challenge, error) {
 	var data []Challenge
-	if err := client.get(fmt.Sprintf("/api/edit/games/%d/challenges", g.Id), &data); err != nil {
+	if err := g.CS.get(fmt.Sprintf("/api/edit/games/%d/challenges", g.Id), &data); err != nil {
 		return nil, err
 	}
 	var challenge *Challenge
@@ -108,9 +112,10 @@ func (g *Game) GetChallenge(name string) (*Challenge, error) {
 	if challenge == nil {
 		return nil, fmt.Errorf("challenge not found")
 	}
-	if err := client.get(fmt.Sprintf("/api/edit/games/%d/challenges/%d", g.Id, challenge.Id), &challenge); err != nil {
+	if err := g.CS.get(fmt.Sprintf("/api/edit/games/%d/challenges/%d", g.Id, challenge.Id), &challenge); err != nil {
 		return nil, err
 	}
 	challenge.GameId = g.Id
+	challenge.CS = g.CS
 	return challenge, nil
 }

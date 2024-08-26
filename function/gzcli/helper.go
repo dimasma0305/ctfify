@@ -11,16 +11,17 @@ import (
 	"github.com/dimasma0305/ctfify/function/log"
 )
 
-func findCurrentGame(games []gzapi.Game, title string) *gzapi.Game {
+func findCurrentGame(games []*gzapi.Game, title string, api *gzapi.GZAPI) *gzapi.Game {
 	for _, game := range games {
 		if game.Title == title {
-			return &game
+			game.CS = api
+			return game
 		}
 	}
 	return nil
 }
 
-func createNewGame(config *Config) (*gzapi.Game, error) {
+func createNewGame(config *Config, api *gzapi.GZAPI) (*gzapi.Game, error) {
 	log.Info("Create new game")
 	event := gzapi.CreateGameForm{
 		Title: config.Event.Title,
@@ -52,7 +53,7 @@ func createNewGame(config *Config) (*gzapi.Game, error) {
 	return game, nil
 }
 
-func updateGameIfNeeded(config *Config, currentGame *gzapi.Game) error {
+func updateGameIfNeeded(config *Config, currentGame *gzapi.Game, api *gzapi.GZAPI) error {
 	poster, err := createPosterIfNotExistOrDifferent(config.Event.Poster, currentGame, api)
 	if err != nil {
 		return err
@@ -87,7 +88,7 @@ func validateChallenges(challengesConf []ChallengeYaml) error {
 	return nil
 }
 
-func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gzapi.Challenge) error {
+func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gzapi.Challenge, api *gzapi.GZAPI) error {
 	var challengeData *gzapi.Challenge
 	var err error
 	if !isChallengeExist(challengeConf.Name, challenges) {
@@ -110,7 +111,7 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 		}
 	}
 
-	err = handleChallengeAttachments(challengeConf, challengeData)
+	err = handleChallengeAttachments(challengeConf, challengeData, api)
 	if err != nil {
 		return err
 	}
@@ -134,7 +135,6 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 				}
 			}
 		}
-		fmt.Println(challengeData.Flags)
 
 		if err := setCache(challengeData.Tag+"/"+challengeConf.Name+"/challenge", challengeData); err != nil {
 			return err
@@ -145,7 +145,7 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 	return nil
 }
 
-func handleChallengeAttachments(challengeConf ChallengeYaml, challengeData *gzapi.Challenge) error {
+func handleChallengeAttachments(challengeConf ChallengeYaml, challengeData *gzapi.Challenge, api *gzapi.GZAPI) error {
 	if challengeConf.Provide != nil {
 		if strings.HasPrefix(*challengeConf.Provide, "http") {
 			log.Info("Create remote attachment for %s", challengeConf.Name)
@@ -156,7 +156,7 @@ func handleChallengeAttachments(challengeConf ChallengeYaml, challengeData *gzap
 				return err
 			}
 		} else {
-			return handleLocalAttachment(challengeConf, challengeData)
+			return handleLocalAttachment(challengeConf, challengeData, api)
 		}
 	} else if challengeData.Attachment != nil {
 		log.Info("Delete attachment for %s", challengeConf.Name)
@@ -169,7 +169,7 @@ func handleChallengeAttachments(challengeConf ChallengeYaml, challengeData *gzap
 	return nil
 }
 
-func handleLocalAttachment(challengeConf ChallengeYaml, challengeData *gzapi.Challenge) error {
+func handleLocalAttachment(challengeConf ChallengeYaml, challengeData *gzapi.Challenge, api *gzapi.GZAPI) error {
 	log.Info("Create local attachment for %s", challengeConf.Name)
 	zipFilename := hashString(*challengeConf.Provide) + ".zip"
 	zipOutput := filepath.Join(challengeConf.Cwd, zipFilename)
@@ -242,8 +242,12 @@ func runScript(challengeConf ChallengeYaml, script string) error {
 	if challengeConf.Scripts[script] == "" {
 		return nil
 	}
-	cmd := exec.Command(shell, "-c", challengeConf.Scripts[script])
-	cmd.Dir = challengeConf.Cwd
+	return runShell(script, challengeConf.Cwd)
+}
+
+func runShell(script string, cwd string) error {
+	cmd := exec.Command(shell, "-c", script)
+	cmd.Dir = cwd
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

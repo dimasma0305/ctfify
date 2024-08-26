@@ -12,32 +12,46 @@ type Creds struct {
 	Password string `json:"password" yaml:"password"`
 }
 
-type API struct {
-	url    string
-	creds  *Creds
-	client *req.Client
+type GZAPI struct {
+	Url    string
+	Creds  *Creds
+	Client *req.Client
 }
 
-var client *API
-
-func Init(url string, creds *Creds) (*API, error) {
+func Init(url string, creds *Creds) (*GZAPI, error) {
 	url = strings.TrimRight(url, "/")
-	newGz := &API{
-		client: req.C().
+	newGz := &GZAPI{
+		Client: req.C().
 			SetUserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0"),
-		url:   url,
-		creds: creds,
+		Url:   url,
+		Creds: creds,
 	}
-	client = newGz
-	if err := newGz.login(); err != nil {
+	if err := newGz.Login(); err != nil {
 		return nil, err
 	}
 	return newGz, nil
 }
 
-func (cs *API) get(url string, data any) error {
-	url = client.url + url
-	req, err := cs.client.R().Get(url)
+func Register(url string, creds *RegisterForm) (*GZAPI, error) {
+	url = strings.TrimRight(url, "/")
+	newGz := &GZAPI{
+		Client: req.C().
+			SetUserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0"),
+		Url: url,
+		Creds: &Creds{
+			Username: creds.Username,
+			Password: creds.Password,
+		},
+	}
+	if err := newGz.Register(creds); err != nil {
+		return nil, err
+	}
+	return newGz, nil
+}
+
+func (cs *GZAPI) get(url string, data any) error {
+	url = cs.Url + url
+	req, err := cs.Client.R().Get(url)
 	if err != nil {
 		return err
 	}
@@ -52,9 +66,9 @@ func (cs *API) get(url string, data any) error {
 	return nil
 }
 
-func (cs *API) delete(url string, data any) error {
-	url = client.url + url
-	req, err := cs.client.R().Delete(url)
+func (cs *GZAPI) delete(url string, data any) error {
+	url = cs.Url + url
+	req, err := cs.Client.R().Delete(url)
 	if err != nil {
 		return err
 	}
@@ -69,9 +83,9 @@ func (cs *API) delete(url string, data any) error {
 	return nil
 }
 
-func (cs *API) post(url string, json any, data any) error {
-	url = client.url + url
-	req, err := cs.client.R().SetBodyJsonMarshal(json).Post(url)
+func (cs *GZAPI) post(url string, json any, data any) error {
+	url = cs.Url + url
+	req, err := cs.Client.R().SetBodyJsonMarshal(json).Post(url)
 	if err != nil {
 		return err
 	}
@@ -86,9 +100,9 @@ func (cs *API) post(url string, json any, data any) error {
 	return nil
 }
 
-func (cs *API) postMultiPart(url string, file string, data any) error {
-	url = client.url + url
-	req, err := cs.client.R().SetFile("files", file).Post(url)
+func (cs *GZAPI) postMultiPart(url string, file string, data any) error {
+	url = cs.Url + url
+	req, err := cs.Client.R().SetFile("files", file).Post(url)
 	if err != nil {
 		return err
 	}
@@ -103,9 +117,9 @@ func (cs *API) postMultiPart(url string, file string, data any) error {
 	return nil
 }
 
-func (cs *API) putMultiPart(url string, file string, data any) error {
-	url = client.url + url
-	req, err := cs.client.R().SetFile("file", file).Put(url)
+func (cs *GZAPI) putMultiPart(url string, file string, data any) error {
+	url = cs.Url + url
+	req, err := cs.Client.R().SetFile("file", file).Put(url)
 	if err != nil {
 		return err
 	}
@@ -120,9 +134,9 @@ func (cs *API) putMultiPart(url string, file string, data any) error {
 	return nil
 }
 
-func (cs *API) put(url string, json any, data any) error {
-	url = client.url + url
-	req, err := cs.client.R().SetBodyJsonMarshal(json).Put(url)
+func (cs *GZAPI) put(url string, json any, data any) error {
+	url = cs.Url + url
+	req, err := cs.Client.R().SetBodyJsonMarshal(json).Put(url)
 	if err != nil {
 		return err
 	}
@@ -133,13 +147,6 @@ func (cs *API) put(url string, json any, data any) error {
 		if err := req.UnmarshalJson(&data); err != nil {
 			return fmt.Errorf("error unmarshal json: %w, %s", err, req.String())
 		}
-	}
-	return nil
-}
-
-func (cs *API) login() error {
-	if err := cs.post("/api/account/login", cs.creds, nil); err != nil {
-		return err
 	}
 	return nil
 }

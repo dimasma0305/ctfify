@@ -7,7 +7,7 @@ import (
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
 )
 
-func createAssetsIfNotExistOrDifferent(file string, client *gzapi.API) (*gzapi.FileInfo, error) {
+func createAssetsIfNotExistOrDifferent(file string, client *gzapi.GZAPI) (*gzapi.FileInfo, error) {
 	assets, err := client.GetAssets()
 	if err != nil {
 		return nil, err
@@ -36,7 +36,7 @@ func createAssetsIfNotExistOrDifferent(file string, client *gzapi.API) (*gzapi.F
 	return &asset[0], nil
 }
 
-func createPosterIfNotExistOrDifferent(file string, game *gzapi.Game, client *gzapi.API) (string, error) {
+func createPosterIfNotExistOrDifferent(file string, game *gzapi.Game, client *gzapi.GZAPI) (string, error) {
 	assets, err := client.GetAssets()
 	if err != nil {
 		return "", err
@@ -65,8 +65,8 @@ func createPosterIfNotExistOrDifferent(file string, game *gzapi.Game, client *gz
 	return asset, nil
 }
 
-func GetClient() (*gzapi.API, error) {
-	config, err := GetConfig()
+func GetClient(api *gzapi.GZAPI) (*gzapi.GZAPI, error) {
+	config, err := GetConfig(api)
 	if err != nil {
 		return nil, err
 	}

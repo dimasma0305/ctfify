@@ -66,6 +66,30 @@ var gzcliCmd = &cobra.Command{
 			return
 		}
 
+		if url, _ := cmd.Flags().GetString("create-teams"); url != "" {
+			if err := gz.CreateTeams(url, false); err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
+
+		if url, _ := cmd.Flags().GetString("create-teams-and-send-email"); url != "" {
+			if err := gz.CreateTeams(url, true); err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
+
+		if ok, _ := cmd.Flags().GetBool("delete-all-user"); ok {
+			if gz, err = gzcli.Init(); err != nil {
+				log.Fatal(err)
+			}
+			if err := gz.DeleteAllUser(); err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
+
 		cmd.Help()
 	},
 }
@@ -76,4 +100,7 @@ func init() {
 	gzcliCmd.Flags().Bool("sync", false, "update gzcli")
 	gzcliCmd.Flags().Bool("ctftime-scoreboard", false, "generate ctftime scoreboard feed")
 	gzcliCmd.Flags().String("run-script", "", "run script")
+	gzcliCmd.Flags().String("create-teams", "", "create team batch")
+	gzcliCmd.Flags().String("create-teams-and-send-email", "", "delete all user")
+	gzcliCmd.Flags().Bool("delete-all-user", false, "delete all user")
 }

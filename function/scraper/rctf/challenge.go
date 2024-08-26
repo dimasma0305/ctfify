@@ -1,8 +1,6 @@
 package rctf
 
 import (
-	"fmt"
-
 	"github.com/dimasma0305/ctfify/function/scraper/templater"
 )
 
@@ -30,7 +28,6 @@ func (r *RCTFScraper) GetChalls() (*Challenges, error) {
 		return nil, err
 	}
 	defer res.Body.Close()
-	fmt.Println(string(res.Bytes()))
 	if err := res.Unmarshal(&challs); err != nil {
 		return nil, err
 	}

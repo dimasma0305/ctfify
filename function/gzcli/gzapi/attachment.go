@@ -9,10 +9,11 @@ type Attachment struct {
 	FileSize    int    `json:"fileSize"`
 	GameId      int    `json:"-"`
 	ChallengeId int    `json:"-"`
+	CS          *GZAPI `json:"-"`
 }
 
 func (a *Attachment) Delete() error {
-	return client.delete(fmt.Sprintf("/api/edit/games/%d/challenges/%d/attachment/%d", a.GameId, a.ChallengeId, a.Id), nil)
+	return a.CS.delete(fmt.Sprintf("/api/edit/games/%d/challenges/%d/attachment/%d", a.GameId, a.ChallengeId, a.Id), nil)
 }
 
 type CreateAttachmentForm struct {
@@ -22,5 +23,5 @@ type CreateAttachmentForm struct {
 }
 
 func (c *Challenge) CreateAttachment(attachment CreateAttachmentForm) error {
-	return client.post(fmt.Sprintf("/api/edit/games/%d/challenges/%d/attachment", c.GameId, c.Id), attachment, nil)
+	return c.CS.post(fmt.Sprintf("/api/edit/games/%d/challenges/%d/attachment", c.GameId, c.Id), attachment, nil)
 }
