@@ -221,14 +221,79 @@ func sendEmail(realName string, website string, creds *TeamCreds) error {
 		return fmt.Errorf("smtpPassword is missing or not a string")
 	}
 
-	// Create a new email message
 	m := gomail.NewMessage()
 	m.SetHeader("From", smtpUsername)
 	m.SetHeader("To", creds.Email)
 	m.SetHeader("Subject", "Your Team Credentials")
-	m.SetBody("text/plain", fmt.Sprintf("Hello %s,\n\nHere are your team credentials:\n\nUsername: %s\nPassword: %s\nTeam Name: %s\nWebsite: %s",
-		realName, creds.Username, creds.Password, creds.TeamName, website,
-	))
+
+	htmlBody := fmt.Sprintf(`
+<html>
+<head>
+	<style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+        .block {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            border: 1px solid #eaeaea;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        h1 {
+            color: #333;
+        }
+        .creds {
+            margin-bottom: 20px;
+        }
+        .creds p {
+            margin: 5px 0;
+        }
+        .cta {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .cta a {
+            display: inline-block;
+            padding: 10px 20px;
+            text-decoration: none;
+            color: white;
+            background-color: #007BFF;
+            border-radius: 5px;
+        }
+        .cta a:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+	<div class="block">
+	<h1>Hello %s,</h1>
+	<div class="creds">
+		<p>Here are your team credentials:</p>
+		<p><strong>Username:</strong> %s</p>
+		<p><strong>Password:</strong> %s</p>
+		<p><strong>Team Name:</strong> %s</p>
+		<p><strong>Website:</strong> <a href="%s">%s</a></p>
+	</div>
+	<p>After logging in with your credentials, you can copy your team invitation code from the /teams page, and then share it with your team members.</p>
+	<p>Make sure to notify your team members to register first and then use the invitation code on the /team page.</p>
+	<p>Once all your team members have joined, you can navigate to the /games page and request to join the game. The admin will verify your request, and you just need to wait for the CTF to start.</p>
+	<div class="cta">
+		<a href="%s">Go to Website</a>
+	</div>
+	</div>
+</body>
+</html>
+`,
+		realName, creds.Username, creds.Password, creds.TeamName, website, website, website,
+	)
+
+	// Set the email body as HTML
+	m.SetBody("text/html", htmlBody)
 
 	// Dial the SMTP server
 	d := gomail.NewDialer(smtpHost, int(smtpPort), smtpUsername, smtpPassword)
