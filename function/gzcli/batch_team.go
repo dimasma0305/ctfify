@@ -284,8 +284,11 @@ func sendEmail(realName string, website string, creds *TeamCreds) error {
 		</div>
 		&nbsp;
 		<p>After logging in with your credentials, you can copy your team invitation code from the /teams page, and then share it with your team members.</p>
+		&nbsp;
 		<p>Make sure to notify your team members to register first and then use the invitation code on the /team page.</p>
+		&nbsp;
 		<p>Once all your team members have joined, you can navigate to the /games page and request to join the game. The admin will verify your request, and you just need to wait for the CTF to start.</p>
+		&nbsp;
 		<div class="cta">
 			<a href="%s">Go to Website</a>
 		</div>

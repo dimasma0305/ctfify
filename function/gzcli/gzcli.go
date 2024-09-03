@@ -168,6 +168,7 @@ func (gz *GZ) RunScript(script string) error {
 	}
 
 	for _, challengeConf := range challengesConf {
+		log.Info("Running %s...", challengeConf.Name)
 		if _, ok := challengeConf.Scripts[script]; ok {
 			if err := runScript(challengeConf, script); err != nil {
 				return err
