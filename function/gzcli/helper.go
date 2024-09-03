@@ -104,7 +104,7 @@ func renderTemplate(config *Config, str string) string {
 
 	var buff bytes.Buffer
 	err = tmpl.Execute(&buff, map[string]string{
-		"url": parsedURL.Host,
+		"host": parsedURL.Host,
 	})
 	if err != nil {
 		log.Fatal(fmt.Errorf("error executing description template: %v", err))
