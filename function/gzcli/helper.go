@@ -1,11 +1,14 @@
 package gzcli
 
 import (
+	"bytes"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"text/template"
 
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
 	"github.com/dimasma0305/ctfify/function/log"
@@ -88,9 +91,33 @@ func validateChallenges(challengesConf []ChallengeYaml) error {
 	return nil
 }
 
+func renderTemplate(config *Config, str string) string {
+	parsedURL, err := url.Parse(config.Url)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	tmpl, err := template.New("template").Parse(str)
+	if err != nil {
+		log.Fatal(fmt.Errorf("error parsing description template: %v", err))
+	}
+
+	var buff bytes.Buffer
+	err = tmpl.Execute(&buff, map[string]string{
+		"url": parsedURL.Host,
+	})
+	if err != nil {
+		log.Fatal(fmt.Errorf("error executing description template: %v", err))
+	}
+	return buff.String()
+}
+
 func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gzapi.Challenge, api *gzapi.GZAPI) error {
 	var challengeData *gzapi.Challenge
 	var err error
+
+	challengeConf.Description = renderTemplate(config, challengeConf.Description)
+
 	if !isChallengeExist(challengeConf.Name, challenges) {
 		log.Info("Create challenge %s", challengeConf.Name)
 		challengeData, err = config.Event.CreateChallenge(gzapi.CreateChallengeForm{
@@ -125,6 +152,7 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 
 	challengeData = mergeChallengeData(&challengeConf, challengeData)
 	if isConfigEdited(&challengeConf, challengeData) {
+
 		if challengeData, err = challengeData.Update(*challengeData); err != nil {
 			if strings.Contains(err.Error(), "404") {
 				challengeData, err = config.Event.GetChallenge(challengeConf.Name)
