@@ -99,7 +99,7 @@ func renderTemplate(config *Config, str string) string {
 
 	tmpl, err := template.New("template").Parse(str)
 	if err != nil {
-		log.Fatal(fmt.Errorf("error parsing description template: %v", err))
+		log.Fatal(fmt.Errorf("error parsing template: %v", err))
 	}
 
 	var buff bytes.Buffer
