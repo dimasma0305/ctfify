@@ -244,7 +244,7 @@ func runScript(challengeConf ChallengeYaml, script string) error {
 	if challengeConf.Scripts[script] == "" {
 		return nil
 	}
-	return runShell(script, challengeConf.Cwd)
+	return runShell(challengeConf.Scripts[script], challengeConf.Cwd)
 }
 
 func runShell(script string, cwd string) error {
