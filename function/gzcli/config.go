@@ -79,7 +79,7 @@ func GetChallengesYaml() ([]ChallengeYaml, error) {
 				challenge.Cwd = filepath.Dir(path)
 				if category == "Osint" {
 					challenge.Tag = "Misc"
-					challenge.Name = "[OSINT]" + challenge.Name
+					challenge.Name = "[OSINT] " + challenge.Name
 				}
 				challenges = append(challenges, challenge)
 			}
