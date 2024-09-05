@@ -154,6 +154,7 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 	if isConfigEdited(&challengeConf, challengeData) {
 
 		if challengeData, err = challengeData.Update(*challengeData); err != nil {
+			log.ErrorH2("Update failed %s", err.Error())
 			if strings.Contains(err.Error(), "404") {
 				challengeData, err = config.Event.GetChallenge(challengeConf.Name)
 				if err != nil {
@@ -165,7 +166,9 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 				}
 			}
 		}
-
+		if challengeData == nil {
+			return fmt.Errorf("update challenge failed")
+		}
 		if err := setCache(challengeData.Tag+"/"+challengeConf.Name+"/challenge", challengeData); err != nil {
 			return err
 		}
