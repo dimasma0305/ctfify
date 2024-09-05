@@ -236,6 +236,7 @@ func updateChallengeFlags(config *Config, challengeConf ChallengeYaml, challenge
 		if !isExistInArray(flag.Flag, challengeConf.Flags) {
 			flag.GameId = config.Event.Id
 			flag.ChallengeId = challengeData.Id
+			flag.CS = config.Event.CS
 			if err := flag.Delete(); err != nil {
 				return err
 			}
