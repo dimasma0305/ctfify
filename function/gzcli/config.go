@@ -6,6 +6,7 @@ import (
 	"regexp"
 
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
+	"github.com/dimasma0305/ctfify/function/log"
 )
 
 const (
@@ -62,6 +63,7 @@ func GetChallengesYaml() ([]ChallengeYaml, error) {
 	ChallengeFilePattern := regexp.MustCompile(`challenge\.(yaml|yml)$`)
 	for _, category := range CHALLENGE_CATEGORY {
 		categoryPath := filepath.Join(dir, category)
+		log.InfoH2("[%s]", category)
 		if _, err := os.Stat(categoryPath); os.IsNotExist(err) {
 			continue
 		}
@@ -77,6 +79,8 @@ func GetChallengesYaml() ([]ChallengeYaml, error) {
 				}
 				challenge.Tag = category
 				challenge.Cwd = filepath.Dir(path)
+
+				log.InfoH3(challenge.Cwd)
 				if category == "OSINT" {
 					challenge.Tag = "Misc"
 					challenge.Name = "[OSINT] " + challenge.Name
