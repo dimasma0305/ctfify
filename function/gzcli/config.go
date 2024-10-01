@@ -80,7 +80,7 @@ func GetChallengesYaml() ([]ChallengeYaml, error) {
 				challenge.Tag = category
 				challenge.Cwd = filepath.Dir(path)
 
-				log.InfoH3(challenge.Cwd)
+				log.InfoH3("'%s'", challenge.Cwd)
 				if category == "OSINT" {
 					challenge.Tag = "Misc"
 					challenge.Name = "[OSINT] " + challenge.Name
@@ -97,6 +97,5 @@ func GetChallengesYaml() ([]ChallengeYaml, error) {
 			return nil, err
 		}
 	}
-	log.Info("%v", challenges)
 	return challenges, nil
 }
