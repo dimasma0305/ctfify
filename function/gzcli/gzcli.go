@@ -70,6 +70,7 @@ func Init() (*GZ, error) {
 			Username: config.Creds.Username,
 			Password: config.Creds.Password,
 		}); err != nil {
+			log.Error(err.Error())
 			log.Error("failed registering the account")
 		}
 
