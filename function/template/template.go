@@ -56,33 +56,44 @@ func processDirectory(directory string, dirEntries []os.DirEntry, info interface
 }
 
 func processFile(file string, info interface{}, destination string) error {
+	file = utils.NormalizePath(file)
 	// Check if the destination file already exists
 	if _, err := os.Stat(destination); err == nil {
 		// File exists, return an error or handle it as needed
 		return fmt.Errorf("destination file already exists: %s", destination)
 	}
 
-	// Parse the template
-	tmpl, err := template.ParseFS(File, utils.NormalizePath(file))
-	if err != nil {
-		return err
-	}
-
-	// Execute the template with the provided info
 	var outputBuffer bytes.Buffer
-	if err := tmpl.Execute(&outputBuffer, info); err != nil {
-		return err
+
+	// Parse the template
+	tmpl, err := template.ParseFS(File, file)
+	if err != nil {
+		log.Error("error parsing the template: %s", err.Error())
+		log.Error("try to copy raw file")
+		buffer, err := File.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		if _, err = outputBuffer.Write(buffer); err != nil {
+			return err
+		}
+
+	} else {
+		// Execute the template with the provided info
+		if err := tmpl.Execute(&outputBuffer, info); err != nil {
+			return fmt.Errorf("error execute the template: %s", err.Error())
+		}
 	}
 
 	// Write the result to the destination
 	destFile, err := os.Create(destination)
 	if err != nil {
-		return err
+		return fmt.Errorf("error creating the destination: %s", err.Error())
 	}
 	defer destFile.Close()
 
 	if _, err := io.Copy(destFile, &outputBuffer); err != nil {
-		return err
+		return fmt.Errorf("error copying the output: %s", err.Error())
 	}
 
 	log.Info("Template written to destination: %s", destFile.Name())

@@ -16,6 +16,7 @@ var LeetSpeakMap = map[rune]string{
 	'o': "0",
 	's': "5",
 	't': "7",
+	'g': "9",
 }
 
 // transformRandomly applies leetspeak transformation randomly and converts characters to uppercase randomly

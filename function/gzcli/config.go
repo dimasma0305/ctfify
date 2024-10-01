@@ -17,7 +17,7 @@ var (
 		"Misc", "Crypto", "Pwn",
 		"Web", "Reverse", "Blockchain",
 		"Forensics", "Hardware", "Mobile", "PPC",
-		"Osint",
+		"OSINT", "Game Hacking",
 	}
 )
 
@@ -77,9 +77,13 @@ func GetChallengesYaml() ([]ChallengeYaml, error) {
 				}
 				challenge.Tag = category
 				challenge.Cwd = filepath.Dir(path)
-				if category == "Osint" {
+				if category == "OSINT" {
 					challenge.Tag = "Misc"
 					challenge.Name = "[OSINT] " + challenge.Name
+				}
+				if category == "Game Hacking" {
+					challenge.Tag = "Misc"
+					challenge.Name = "[Game Hacking] " + challenge.Name
 				}
 				challenges = append(challenges, challenge)
 			}
