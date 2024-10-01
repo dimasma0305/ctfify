@@ -5,9 +5,9 @@ import (
 )
 
 type ScoreboardChallenge struct {
-	Score int    `json:"score"`
-	Tag   string `json:"tag"`
-	Title string `json:"title"`
+	Score    int    `json:"score"`
+	Category string `json:"category"`
+	Title    string `json:"title"`
 }
 
 type ScoreboardItem struct {

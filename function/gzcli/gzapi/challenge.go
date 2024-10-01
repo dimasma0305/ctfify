@@ -9,7 +9,7 @@ type Challenge struct {
 	Id                   int         `json:"id" yaml:"id"`
 	Title                string      `json:"title" yaml:"title"`
 	Content              string      `json:"content" yaml:"content"`
-	Tag                  string      `json:"tag" yaml:"tag"`
+	Category             string      `json:"category" yaml:"category"`
 	Type                 string      `json:"type" yaml:"type"`
 	Hints                []string    `json:"hints" yaml:"hints"`
 	FlagTemplate         string      `json:"flagTemplate" yaml:"flagTemplate"`
@@ -54,9 +54,9 @@ func (c *Challenge) Refresh() (*Challenge, error) {
 }
 
 type CreateChallengeForm struct {
-	Title string `json:"title"`
-	Tag   string `json:"tag"`
-	Type  string `json:"type"`
+	Title    string `json:"title"`
+	Category string `json:"category"`
+	Type     string `json:"type"`
 }
 
 func (g *Game) CreateChallenge(challenge CreateChallengeForm) (*Challenge, error) {

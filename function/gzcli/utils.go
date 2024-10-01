@@ -182,7 +182,7 @@ func hashString(s string) string {
 
 func isConfigEdited(challengeConf *ChallengeYaml, challengeData *gzapi.Challenge) bool {
 	var cacheChallenge gzapi.Challenge
-	if err := GetCache(challengeConf.Tag+"/"+challengeConf.Name+"/challenge", &cacheChallenge); err == nil {
+	if err := GetCache(challengeConf.Category+"/"+challengeConf.Name+"/challenge", &cacheChallenge); err == nil {
 		if challengeData.Hints == nil {
 			challengeData.Hints = []string{}
 		}
@@ -195,7 +195,7 @@ func isConfigEdited(challengeConf *ChallengeYaml, challengeData *gzapi.Challenge
 
 func mergeChallengeData(challengeConf *ChallengeYaml, challengeData *gzapi.Challenge) *gzapi.Challenge {
 	challengeData.Title = challengeConf.Name
-	challengeData.Tag = challengeConf.Tag
+	challengeData.Category = challengeConf.Category
 	challengeData.Content = "Author: **" + challengeConf.Author + "**\n\n" + challengeConf.Description
 	challengeData.Type = challengeConf.Type
 	challengeData.Hints = challengeConf.Hints

@@ -121,16 +121,16 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 	if !isChallengeExist(challengeConf.Name, challenges) {
 		log.Info("Create challenge %s", challengeConf.Name)
 		challengeData, err = config.Event.CreateChallenge(gzapi.CreateChallengeForm{
-			Title: challengeConf.Name,
-			Tag:   challengeConf.Tag,
-			Type:  challengeConf.Type,
+			Title:    challengeConf.Name,
+			Category: challengeConf.Category,
+			Type:     challengeConf.Type,
 		})
 		if err != nil {
 			return fmt.Errorf("create challenge %s: %v", challengeConf.Name, err)
 		}
 	} else {
 		log.Info("Update challenge %s", challengeConf.Name)
-		if err = GetCache(challengeConf.Tag+"/"+challengeConf.Name+"/challenge", &challengeData); err != nil {
+		if err = GetCache(challengeConf.Category+"/"+challengeConf.Name+"/challenge", &challengeData); err != nil {
 			challengeData, err = config.Event.GetChallenge(challengeConf.Name)
 			if err != nil {
 				return fmt.Errorf("get challenge %s: %v", challengeConf.Name, err)
@@ -169,7 +169,7 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 		if challengeData == nil {
 			return fmt.Errorf("update challenge failed")
 		}
-		if err := setCache(challengeData.Tag+"/"+challengeConf.Name+"/challenge", challengeData); err != nil {
+		if err := setCache(challengeData.Category+"/"+challengeConf.Name+"/challenge", challengeData); err != nil {
 			return err
 		}
 	} else {
