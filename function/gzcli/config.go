@@ -81,14 +81,14 @@ func GetChallengesYaml() ([]ChallengeYaml, error) {
 				challenge.Cwd = filepath.Dir(path)
 
 				log.InfoH3(challenge.Cwd)
-				// if category == "OSINT" {
-				// 	challenge.Tag = "Misc"
-				// 	challenge.Name = "[OSINT] " + challenge.Name
-				// }
-				// if category == "Game Hacking" {
-				// 	challenge.Tag = "Misc"
-				// 	challenge.Name = "[Game Hacking] " + challenge.Name
-				// }
+				if category == "OSINT" {
+					challenge.Tag = "Misc"
+					challenge.Name = "[OSINT] " + challenge.Name
+				}
+				if category == "Game Hacking" {
+					challenge.Tag = "Misc"
+					challenge.Name = "[Game Hacking] " + challenge.Name
+				}
 				challenges = append(challenges, challenge)
 			}
 			return nil
@@ -97,6 +97,6 @@ func GetChallengesYaml() ([]ChallengeYaml, error) {
 			return nil, err
 		}
 	}
-
+	log.Info("%v", challenges)
 	return challenges, nil
 }
