@@ -83,10 +83,11 @@ func validateChallenges(challengesConf []ChallengeYaml) error {
 		if challengeConf.Type == "" {
 			challengeConf.Type = "StaticAttachments"
 		}
-
+		log.Info("Validating %s challenge...", challengeConf.Cwd)
 		if err := isGoodChallenge(challengeConf); err != nil {
 			return err
 		}
+		log.Info("Challenge %s is valid.", challengeConf.Cwd)
 	}
 	return nil
 }
