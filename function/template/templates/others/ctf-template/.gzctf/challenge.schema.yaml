@@ -3,31 +3,31 @@ type: object
 properties:
   name:
     type: string
-    description: The name of the CTF challenge.
+    description: The name of the CTF challenge. This should be a unique and descriptive title.
   author:
     type: string
-    description: The creator of the CTF challenge.
+    description: The creator or author of the CTF challenge. This can be an individual or a team.
   description:
     type: string
-    description: A detailed description of the CTF challenge.
+    description: A detailed description of the CTF challenge, including objectives, context, and any relevant background information.
   flags:
     type: array
-    description: An array of flags for the CTF challenge.
+    description: An array of flags for the CTF challenge. Each flag is a string that participants need to find.
     items:
       type: string
   value:
     type: integer
-    description: The point value of the CTF challenge.
+    description: The point value of the CTF challenge. This indicates how many points a participant will earn upon successfully completing the challenge.
     minimum: 0
   provide:
     type: string
-    description: File or directory to provide to the challenge.
+    description: File or directory to provide to the challenge. This could be necessary files, scripts, or other resources required to solve the challenge.
   visible:
     type: boolean
-    description: Indicates if the challenge is visible to participants.
+    description: Indicates if the challenge is visible to participants. If set to false, the challenge will be hidden from the challenge list.
   type:
     type: string
-    description: The type of the CTF challenge.
+    description: "The type of the CTF challenge. This can be one of the following: StaticAttachment, StaticContainer, DynamicAttachment, DynamicContainer."
     enum:
       - StaticAttachment
       - StaticContainer
@@ -35,49 +35,49 @@ properties:
       - DynamicContainer
   hints:
     type: array
-    description: An array of hints for the CTF challenge.
+    description: An array of hints for the CTF challenge. These hints can help participants solve the challenge if they get stuck.
     items:
       type: string
   scripts:
     type: object
-    description: An object containing scripts for the CTF challenge.
+    description: An object containing scripts for the CTF challenge. This includes scripts to start and stop the challenge.
     properties:
       start:
         type: string
-        description: The script to start the CTF challenge.
+        description: The script to start the CTF challenge. This script is executed when the challenge is launched.
       stop:
         type: string
-        description: The script to stop the CTF challenge.
+        description: The script to stop the CTF challenge. This script is executed when the challenge is terminated.
   container:
     type: object
-    description: Configuration details for container-based challenges.
+    description: Configuration details for container-based challenges. This includes information about the container environment and resources.
     properties:
       flagTemplate:
         type: string
         description: |
-          The template for generating dynamic flags. For example you can see at https://docs.ctf.gzti.me/guide/dynamic-flag#examples
+          The template for generating dynamic flags. For example, you can see examples at https://gzctf.gzti.me/guide/features/dynamic-flag.html.
       containerImage:
         type: string
-        description: The Docker image used for the challenge container.
+        description: The Docker image used for the challenge container. This image should be pre-configured with the necessary environment and tools.
       memoryLimit:
         type: integer
-        description: The memory limit for the container in megabytes.
+        description: The memory limit for the container in megabytes. This specifies the maximum amount of memory the container can use.
         minimum: 0
       cpuCount:
         type: integer
-        description: The number of CPUs allocated to the container.
+        description: The number of CPUs allocated to the container. This specifies the number of CPU cores assigned to the container.
         minimum: 0
       storageLimit:
         type: integer
-        description: The storage limit for the container in megabytes.
+        description: The storage limit for the container in megabytes. This specifies the maximum amount of storage the container can use.
         minimum: 0
       containerExposePort:
         type: integer
-        description: The port exposed by the container.
+        description: The port exposed by the container. This is the port that will be accessible to participants.
         minimum: 0
       enableTrafficCapture:
         type: boolean
-        description: Indicates if network traffic capture is enabled for the container.
+        description: Indicates if network traffic capture is enabled for the container. This can be useful for analyzing network activity during the challenge.
     required:
       - containerImage
       - memoryLimit

@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/dimasma0305/ctfify/refs/heads/master/function/template/templates/others/ctf-template/.gzctf/challenge.schema.yaml
+
+name: "Web Example Challenge"
+author: "dimas"
+description: "This is a example challenge"
+type: "StaticAttachment"
+
+flags:
+  - "flag{example_flag}"
+
+value: 1000
+
+provide: "./dist"
+hints:
+ - fooflag
+
+
