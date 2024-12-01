@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/gomail.v2"
@@ -165,8 +166,12 @@ func getData(source string) ([]byte, error) {
 }
 
 func getAppSettings() (map[string]interface{}, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
 	filePath := "appsettings.json"
-	file, err := os.Open(filePath)
+	file, err := os.Open(filepath.Join(dir, GZCTF_DIR, filePath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %v", err)
 	}

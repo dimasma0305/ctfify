@@ -9,7 +9,7 @@ type Attachment struct {
 	FileSize    int    `json:"fileSize"`
 	GameId      int    `json:"-"`
 	ChallengeId int    `json:"-"`
-	CS          *GZAPI `json:"-"`
+	CS          *GZAPI `json:"-" yaml:"-"`
 }
 
 func (a *Attachment) Delete() error {
@@ -23,5 +23,13 @@ type CreateAttachmentForm struct {
 }
 
 func (c *Challenge) CreateAttachment(attachment CreateAttachmentForm) error {
-	return c.CS.post(fmt.Sprintf("/api/edit/games/%d/challenges/%d/attachment", c.GameId, c.Id), attachment, nil)
+	err := c.CS.post(fmt.Sprintf("/api/edit/games/%d/challenges/%d/attachment", c.GameId, c.Id), attachment, nil)
+	if err != nil {
+		return err
+	}
+	c.Attachment = &Attachment{
+		Type: attachment.AttachmentType,
+		Url:  attachment.FileHash,
+	}
+	return nil
 }

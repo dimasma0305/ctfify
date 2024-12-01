@@ -81,6 +81,10 @@ var otherTemplateList = map[string]info{
 		name: "java-exploitation-plus",
 		desc: "Java Exploitation Framework",
 	},
+	"ctfTemplate": {
+		name: "ctfTemplate",
+		desc: "CTF Template",
+	},
 }
 
 // addCmd represents the add command
@@ -125,6 +129,8 @@ that i specialy crafted`,
 				other.POC(addFlag.Destination, addFlag)
 			case otherTemplateList["java-exploitation-plus"].name:
 				other.JavaExploitationPlus(addFlag.Destination, addFlag)
+			case otherTemplateList["ctfTemplate"].name:
+				other.CTFTemplate(addFlag.Destination, addFlag)
 			}
 		}
 

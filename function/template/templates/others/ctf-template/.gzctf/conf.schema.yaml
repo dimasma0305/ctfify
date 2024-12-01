@@ -1,0 +1,114 @@
+$schema: http://json-schema.org/draft-07/schema#
+type: object
+definitions:
+  url:
+    type: string
+    description: >
+      The URL where the configuration connects for game management.
+  creds:
+    type: object
+    properties:
+      username:
+        type: string
+        description: >
+          The username for authentication.
+      password:
+        type: string
+        description: >
+          The password for authentication.
+    required:
+      - username
+      - password
+    additionalProperties: false
+  game:
+    type: object
+    properties:
+      title:
+        type: string
+        description: >
+          The title of the game or event.
+      start:
+        type: string
+        format: date-time
+        description: >
+          The start date and time of the game.
+      end:
+        type: string
+        format: date-time
+        description: >
+          The end date and time of the game.
+      poster:
+        type: string
+        description: >
+          The path or URL to the poster image for the game.
+      hidden:
+        type: boolean
+        description: >
+          Whether the game is hidden from the public.
+      summary:
+        type: string
+        description: >
+          A short summary of the game.
+      content:
+        type: string
+        description: >
+          The full content of the game.
+      acceptWithoutReview:
+        type: boolean
+        description: >
+          Whether the game accepts registration without review.
+      inviteCode:
+        type: string
+        description: >
+          The invite code for the game.
+      organizations:
+        type: array
+        items:
+          type: string
+        description: >
+          The organizations that host the game.
+      teamMemberCountLimit:
+        type: integer
+        description: >
+          The limit of team members for the game.
+      containerCountLimit:
+        type: integer
+        description: >
+          The limit of containers for the game.
+      practiceMode:
+        type: boolean
+        description: >
+          Whether the game is in practice mode.
+      writeupRequired:
+        type: boolean
+        description: >
+          Whether the game requires a writeup.
+      writeupDeadline:
+        type: string
+        format: date-time
+        description: >
+          The deadline for the writeup.
+      writeupNote:
+        type: string
+        description: >
+          The note for the writeup.
+      bloodBonus:
+        type: integer
+        description: >
+          The blood bonus for the game.
+    required:
+      - title
+      - start
+      - end
+    additionalProperties: false
+properties:
+  url:
+    $ref: "#/definitions/url"
+  creds:
+    $ref: "#/definitions/creds"
+  event:
+    $ref: "#/definitions/game"
+required:
+  - url
+  - creds
+  - event

@@ -13,7 +13,7 @@ func createAssetsIfNotExistOrDifferent(file string, client *gzapi.GZAPI) (*gzapi
 		return nil, err
 	}
 
-	hash, err := GetFileHash(file)
+	hash, err := GetFileHashHex(file)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func createPosterIfNotExistOrDifferent(file string, game *gzapi.Game, client *gz
 		return "", err
 	}
 
-	hash, err := GetFileHash(file)
+	hash, err := GetFileHashHex(file)
 	if err != nil {
 		return "", err
 	}

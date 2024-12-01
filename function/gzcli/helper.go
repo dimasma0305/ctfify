@@ -140,7 +140,6 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 		// fix bug nill pointer because cache didn't return gzapi
 		challengeData.CS = api
 	}
-
 	err = handleChallengeAttachments(challengeConf, challengeData, api)
 	if err != nil {
 		return err
@@ -153,7 +152,6 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 
 	challengeData = mergeChallengeData(&challengeConf, challengeData)
 	if isConfigEdited(&challengeConf, challengeData) {
-
 		if challengeData, err = challengeData.Update(*challengeData); err != nil {
 			log.ErrorH2("Update failed %s", err.Error())
 			if strings.Contains(err.Error(), "404") {
@@ -205,7 +203,7 @@ func handleChallengeAttachments(challengeConf ChallengeYaml, challengeData *gzap
 
 func handleLocalAttachment(challengeConf ChallengeYaml, challengeData *gzapi.Challenge, api *gzapi.GZAPI) error {
 	log.Info("Create local attachment for %s", challengeConf.Name)
-	zipFilename := hashString(*challengeConf.Provide) + ".zip"
+	zipFilename := NormalizeFileName(*challengeConf.Provide) + ".zip"
 	zipOutput := filepath.Join(challengeConf.Cwd, zipFilename)
 	if info, err := os.Stat(filepath.Join(challengeConf.Cwd, *challengeConf.Provide)); err != nil || info.IsDir() {
 		log.Info("Zip attachment for %s", challengeConf.Name)
@@ -219,7 +217,6 @@ func handleLocalAttachment(challengeConf ChallengeYaml, challengeData *gzapi.Cha
 	if err != nil {
 		return err
 	}
-
 	if challengeData.Attachment != nil && strings.Contains(challengeData.Attachment.Url, fileinfo.Hash) {
 		log.Info("Attachment for %s is the same...", challengeConf.Name)
 	} else {

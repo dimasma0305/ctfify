@@ -9,7 +9,8 @@ import (
 
 // normalize path for windows compability
 func NormalizePath(str string) string {
-	return strings.ReplaceAll(str, "\\", "/")
+	str = strings.ReplaceAll(str, "\\", "/")
+	return str
 }
 
 func GetJson(byte []byte, data any) error {

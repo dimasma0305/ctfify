@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/template"
 
 	"github.com/dimasma0305/ctfify/function/log"
@@ -57,6 +58,7 @@ func processDirectory(directory string, dirEntries []os.DirEntry, info interface
 
 func processFile(file string, info interface{}, destination string) error {
 	file = utils.NormalizePath(file)
+	destination = strings.ReplaceAll(destination, "{{replaceit}}", "")
 	// Check if the destination file already exists
 	if _, err := os.Stat(destination); err == nil {
 		// File exists, return an error or handle it as needed

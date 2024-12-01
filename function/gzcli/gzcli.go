@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
 	"github.com/dimasma0305/ctfify/function/log"
@@ -57,8 +58,27 @@ type GZ struct {
 	api *gzapi.GZAPI
 }
 
+func runDBQuery(query string) (err error) {
+	cmd := exec.Command(
+		"sudo", "docker", "compose", "exec", "-T", "db", "psql",
+		"--user", "postgres",
+		"-d", "gzctf",
+		"-c", query,
+	)
+	cmd.Dir, _ = os.Getwd()
+	cmd.Dir = filepath.Join(cmd.Dir, GZCTF_DIR)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Error("failed to change user role locally, please run manually")
+		return err
+	}
+	return nil
+}
+
 func Init() (*GZ, error) {
 	config, err := GetConfig(&gzapi.GZAPI{})
+	defaultEmail := "admin@localhost"
 	if err != nil {
 		return nil, fmt.Errorf("error getting the config")
 	}
@@ -66,25 +86,21 @@ func Init() (*GZ, error) {
 	if err != nil {
 		log.Error("Failed to login, try to register the account")
 		if api, err = gzapi.Register(config.Url, &gzapi.RegisterForm{
-			Email:    "admin@localhost",
+			Email:    defaultEmail,
 			Username: config.Creds.Username,
 			Password: config.Creds.Password,
 		}); err != nil {
 			log.Error(err.Error())
 			log.Error("failed registering the account")
+			if strings.Contains(err.Error(), "This account already exists") {
+				log.Info("Trying to change the role of the user")
+				if err := runDBQuery(fmt.Sprintf("DELETE FROM \"AspNetUsers\" WHERE \"Email\"='%s';", defaultEmail)); err != nil {
+					return nil, err
+				}
+				return Init()
+			}
 		}
-
-		cmd := exec.Command(
-			"sudo", "docker", "compose", "exec", "-T", "db", "psql",
-			"--user", "postgres",
-			"-d", "gzctf",
-			"-c", fmt.Sprintf(`UPDATE "AspNetUsers" SET "Role"=3 WHERE "UserName"='%s';`, config.Creds.Username),
-		)
-		cmd.Dir, _ = os.Getwd()
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			log.Error("failed to change user role locally, please run manually")
+		if err := runDBQuery(fmt.Sprintf(`UPDATE "AspNetUsers" SET "Role"=3 WHERE "UserName"='%s';`, config.Creds.Username)); err != nil {
 			return nil, err
 		}
 	}

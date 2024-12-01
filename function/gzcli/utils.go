@@ -7,12 +7,19 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
 	"github.com/dimasma0305/ctfify/function/log"
 	"github.com/google/go-cmp/cmp"
 	"gopkg.in/yaml.v2"
 )
+
+func NormalizeFileName(name string) string {
+	re := regexp.MustCompile("[^a-zA-Z0-9\\-_ ]+")
+	return strings.ToLower(re.ReplaceAllString(name, ""))
+}
 
 func ParseYamlFromFile(confPath string, data any) error {
 	confFile, err := os.ReadFile(confPath)
@@ -27,7 +34,7 @@ func ParseYamlFromFile(confPath string, data any) error {
 	return nil
 }
 
-func GetFileHash(file string) (string, error) {
+func GetFileHashHex(file string) (string, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return "", err
@@ -39,7 +46,7 @@ func GetFileHash(file string) (string, error) {
 		return "", err
 	}
 
-	return string(h.Sum(nil)), nil
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 func isGoodChallenge(challenge ChallengeYaml) error {
@@ -172,12 +179,6 @@ func zipSource(source, target string) error {
 		_, err = io.Copy(headerWriter, f)
 		return err
 	})
-}
-
-func hashString(s string) string {
-	h := sha256.New()
-	h.Write([]byte(s))
-	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 func isConfigEdited(challengeConf *ChallengeYaml, challengeData *gzapi.Challenge) bool {

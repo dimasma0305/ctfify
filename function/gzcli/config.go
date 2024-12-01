@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	GZCTF_DIR   = ".gzctf"
 	CONFIG_FILE = "conf.yaml"
 )
 
@@ -28,7 +29,7 @@ func GetConfig(api *gzapi.GZAPI) (*Config, error) {
 		return nil, err
 	}
 	var config Config
-	confPath := filepath.Join(dir, CONFIG_FILE)
+	confPath := filepath.Join(dir, GZCTF_DIR, CONFIG_FILE)
 	if err := ParseYamlFromFile(confPath, &config); err != nil {
 		return nil, err
 	}

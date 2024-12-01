@@ -1,0 +1,110 @@
+$schema: http://json-schema.org/draft-07/schema#
+type: object
+properties:
+  name:
+    type: string
+    description: The name of the CTF challenge.
+  author:
+    type: string
+    description: The creator of the CTF challenge.
+  description:
+    type: string
+    description: A detailed description of the CTF challenge.
+  flags:
+    type: array
+    description: An array of flags for the CTF challenge.
+    items:
+      type: string
+  value:
+    type: integer
+    description: The point value of the CTF challenge.
+    minimum: 0
+  provide:
+    type: string
+    description: File or directory to provide to the challenge.
+  visible:
+    type: boolean
+    description: Indicates if the challenge is visible to participants.
+  type:
+    type: string
+    description: The type of the CTF challenge.
+    enum:
+      - StaticAttachment
+      - StaticContainer
+      - DynamicAttachment
+      - DynamicContainer
+  hints:
+    type: array
+    description: An array of hints for the CTF challenge.
+    items:
+      type: string
+  scripts:
+    type: object
+    description: An object containing scripts for the CTF challenge.
+    properties:
+      start:
+        type: string
+        description: The script to start the CTF challenge.
+      stop:
+        type: string
+        description: The script to stop the CTF challenge.
+  container:
+    type: object
+    description: Configuration details for container-based challenges.
+    properties:
+      flagTemplate:
+        type: string
+        description: |
+          The template for generating dynamic flags. For example you can see at https://docs.ctf.gzti.me/guide/dynamic-flag#examples
+      containerImage:
+        type: string
+        description: The Docker image used for the challenge container.
+      memoryLimit:
+        type: integer
+        description: The memory limit for the container in megabytes.
+        minimum: 0
+      cpuCount:
+        type: integer
+        description: The number of CPUs allocated to the container.
+        minimum: 0
+      storageLimit:
+        type: integer
+        description: The storage limit for the container in megabytes.
+        minimum: 0
+      containerExposePort:
+        type: integer
+        description: The port exposed by the container.
+        minimum: 0
+      enableTrafficCapture:
+        type: boolean
+        description: Indicates if network traffic capture is enabled for the container.
+    required:
+      - containerImage
+      - memoryLimit
+      - cpuCount
+      - storageLimit
+      - containerExposePort
+      - enableTrafficCapture
+required:
+  - name
+  - author
+  - description
+  - value
+  - type
+allOf:
+  - if:
+      properties:
+        type:
+          enum: ['StaticContainer', 'DynamicContainer']
+    then:
+      required:
+        - container
+  - if:
+      properties:
+        type:
+          enum: ['DynamicContainer']
+    then:
+      properties:
+        container:
+          required:
+            - flagTemplate
