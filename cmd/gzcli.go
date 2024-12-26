@@ -103,6 +103,6 @@ func init() {
 	gzcliCmd.Flags().Bool("ctftime-scoreboard", false, "generate ctftime scoreboard feed")
 	gzcliCmd.Flags().String("run-script", "", "run script")
 	gzcliCmd.Flags().String("create-teams", "", "create team batch")
-	gzcliCmd.Flags().String("create-teams-and-send-email", "", "delete all user")
+	gzcliCmd.Flags().String("create-teams-and-send-email", "", `delete all user []string{"RealName", "Email", "TeamName"}`)
 	gzcliCmd.Flags().Bool("delete-all-user", false, "delete all user")
 }

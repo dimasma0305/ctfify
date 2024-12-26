@@ -32,7 +32,7 @@ type TeamCreds struct {
 func (gz *GZ) CreteTeamAndUser(teamCreds *TeamCreds, config *Config, existingTeamNames, existingUserNames map[string]struct{}, credsCache []*TeamCreds, isSendEmail bool) (*TeamCreds, error) {
 	var api *gzapi.GZAPI
 	var currentCreds *TeamCreds
-	password, err := password.Generate(24, 10, 10, false, false)
+	password, err := password.Generate(24, 10, 0, false, false)
 	if err != nil {
 		return nil, err
 	}
