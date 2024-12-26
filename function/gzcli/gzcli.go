@@ -179,31 +179,58 @@ func (gz *GZ) Scoreboard2CTFTimeFeed() (*CTFTimeFeed, error) {
 	return &ctfTimeFeed, nil
 }
 
-func (gz *GZ) RunScripts(script string) error {
-	challengesConf, err := GetChallengesYaml(&Config{})
-	if err != nil {
-		return err
-	}
+package main
 
-	base := path.Base(script)
-	dir, _ := filepath.Abs(path.Dir(script))
-	for _, challengeConf := range challengesConf {
-		log.Info("Running %s...", challengeConf.Name)
-		if strings.Contains(script, "/") {
-			if dir == challengeConf.Cwd {
-				if err := runScript(challengeConf, base); err != nil {
-					return err
-				}
-				break
-			}
-		}
-		if _, ok := challengeConf.Scripts[script]; ok {
-			if err := runScript(challengeConf, script); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+import (
+    "log"
+    "path"
+    "path/filepath"
+    "strings"
+    "sync"
+)
+
+func (gz *GZ) RunScripts(script string) error {
+    challengesConf, err := GetChallengesYaml(&Config{})
+    if err != nil {
+        return err
+    }
+
+    var wg sync.WaitGroup
+    threadLimit := 5
+    threadChan := make(chan struct{}, threadLimit)
+
+    base := path.Base(script)
+    dir, _ := filepath.Abs(path.Dir(script))
+    for _, challengeConf := range challengesConf {
+        log.Info("Running %s...", challengeConf.Name)
+        if strings.Contains(script, "/") {
+            if dir == challengeConf.Cwd {
+                threadChan <- struct{}{}
+                wg.Add(1)
+                go func(challengeConf ChallengeConf, base string) {
+                    defer wg.Done()
+                    defer func() { <-threadChan }()
+                    if err := runScript(challengeConf, base); err != nil {
+                        log.Println(err)
+                    }
+                }(challengeConf, base)
+                break
+            }
+        }
+        if _, ok := challengeConf.Scripts[script]; ok {
+            threadChan <- struct{}{}
+            wg.Add(1)
+            go func(challengeConf ChallengeConf, script string) {
+                defer wg.Done()
+                defer func() { <-threadChan }()
+                if err := runScript(challengeConf, script); err != nil {
+                    log.Println(err)
+                }
+            }(challengeConf, script)
+        }
+    }
+    wg.Wait()
+    return nil
 }
 
 func (gz *GZ) Sync() error {
