@@ -60,7 +60,7 @@ var gzcliCmd = &cobra.Command{
 		}
 
 		if script, _ := cmd.Flags().GetString("run-script"); script != "" {
-			if err := gz.RunScript(script); err != nil {
+			if err := gz.RunScripts(script); err != nil {
 				log.Fatal(err)
 			}
 			return

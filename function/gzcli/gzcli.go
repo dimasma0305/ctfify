@@ -178,7 +178,7 @@ func (gz *GZ) Scoreboard2CTFTimeFeed() (*CTFTimeFeed, error) {
 	return &ctfTimeFeed, nil
 }
 
-func (gz *GZ) RunScript(script string) error {
+func (gz *GZ) RunScripts(script string) error {
 	challengesConf, err := GetChallengesYaml()
 	if err != nil {
 		return err
