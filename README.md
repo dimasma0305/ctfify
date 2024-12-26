@@ -9,3 +9,11 @@ Install **ctfify** with:
 ```sh
 go install github.com/dimasma0305/ctfify@latest
 ```
+
+## Requirements
+
+Install golang latest with:
+
+```
+bash ./go-install.sh
+```

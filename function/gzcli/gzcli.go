@@ -116,7 +116,7 @@ func (gz *GZ) InitFolder() error {
 	}
 
 	for _, category := range CHALLENGE_CATEGORY {
-		categoryPath := filepath.Join(dir, category)
+		categoryPath := filepath.Join(dir, GZCTF_DIR, category)
 		if err := createCategoryFolder(categoryPath); err != nil {
 			return fmt.Errorf("create category folder: %v", err)
 		}
