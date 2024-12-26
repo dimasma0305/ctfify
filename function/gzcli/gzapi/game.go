@@ -1,31 +1,49 @@
 package gzapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 )
 
 type Game struct {
-	Id                   int       `json:"id" yaml:"id"`
-	Title                string    `json:"title" yaml:"title"`
-	Hidden               bool      `json:"hidden" yaml:"hidden"`
-	Summary              string    `json:"summary" yaml:"summary"`
-	Content              string    `json:"content" yaml:"content"`
-	AcceptWithoutReview  bool      `json:"acceptWithoutReview" yaml:"acceptWithoutReview"`
-	WriteupRequired      bool      `json:"writeupRequired" yaml:"writeupRequired"`
-	InviteCode           string    `json:"inviteCode,omitempty" yaml:"inviteCode,omitempty"`
-	Organizations        []string  `json:"organizations,omitempty" yaml:"organizations,omitempty"`
-	TeamMemberCountLimit int       `json:"teamMemberCountLimit" yaml:"teamMemberCountLimit"`
-	ContainerCountLimit  int       `json:"containerCountLimit" yaml:"containerCountLimit"`
-	Poster               string    `json:"poster,omitempty" yaml:"poster,omitempty"`
-	PublicKey            string    `json:"publicKey" yaml:"publicKey"`
-	PracticeMode         bool      `json:"practiceMode" yaml:"practiceMode"`
-	Start                time.Time `json:"start" yaml:"start"`
-	End                  time.Time `json:"end" yaml:"end"`
-	WriteupDeadline      time.Time `json:"writeupDeadline,omitempty" yaml:"writeupDeadline,omitempty"`
-	WriteupNote          string    `json:"writeupNote" yaml:"writeupNote"`
-	BloodBonus           int       `json:"bloodBonus" yaml:"bloodBonus"`
-	CS                   *GZAPI    `json:"-" yaml:"-"`
+	Id                   int        `json:"id" yaml:"id"`
+	Title                string     `json:"title" yaml:"title"`
+	Hidden               bool       `json:"hidden" yaml:"hidden"`
+	Summary              string     `json:"summary" yaml:"summary"`
+	Content              string     `json:"content" yaml:"content"`
+	AcceptWithoutReview  bool       `json:"acceptWithoutReview" yaml:"acceptWithoutReview"`
+	WriteupRequired      bool       `json:"writeupRequired" yaml:"writeupRequired"`
+	InviteCode           string     `json:"inviteCode,omitempty" yaml:"inviteCode,omitempty"`
+	Organizations        []string   `json:"organizations,omitempty" yaml:"organizations,omitempty"`
+	TeamMemberCountLimit int        `json:"teamMemberCountLimit" yaml:"teamMemberCountLimit"`
+	ContainerCountLimit  int        `json:"containerCountLimit" yaml:"containerCountLimit"`
+	Poster               string     `json:"poster,omitempty" yaml:"poster,omitempty"`
+	PublicKey            string     `json:"publicKey" yaml:"publicKey"`
+	PracticeMode         bool       `json:"practiceMode" yaml:"practiceMode"`
+	Start                CustomTime `json:"start" yaml:"start"`
+	End                  CustomTime `json:"end" yaml:"end"`
+	WriteupDeadline      CustomTime `json:"writeupDeadline,omitempty" yaml:"writeupDeadline,omitempty"`
+	WriteupNote          string     `json:"writeupNote" yaml:"writeupNote"`
+	BloodBonus           int        `json:"bloodBonus" yaml:"bloodBonus"`
+	CS                   *GZAPI     `json:"-" yaml:"-"`
+}
+
+type CustomTime struct {
+	time.Time
+}
+
+// UnmarshalJSON implements the json.Unmarshaler interface.
+func (ct *CustomTime) UnmarshalJSON(b []byte) error {
+	// The input comes as a number (milliseconds since epoch).
+	var ms int64
+	if err := json.Unmarshal(b, &ms); err != nil {
+		return err
+	}
+
+	// Convert milliseconds to seconds and set the time.
+	ct.Time = time.Unix(0, ms*int64(time.Millisecond))
+	return nil
 }
 
 func (cs *GZAPI) GetGames() ([]*Game, error) {

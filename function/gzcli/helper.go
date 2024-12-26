@@ -27,8 +27,8 @@ func createNewGame(config *Config, api *gzapi.GZAPI) (*gzapi.Game, error) {
 	log.Info("Create new game")
 	event := gzapi.CreateGameForm{
 		Title: config.Event.Title,
-		Start: config.Event.Start,
-		End:   config.Event.End,
+		Start: config.Event.Start.Time,
+		End:   config.Event.End.Time,
 	}
 	game, err := api.CreateGame(event)
 	if err != nil {
