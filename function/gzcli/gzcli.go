@@ -116,13 +116,13 @@ func (gz *GZ) InitFolder() error {
 	}
 
 	for _, category := range CHALLENGE_CATEGORY {
-		categoryPath := filepath.Join(dir, GZCTF_DIR, category)
+		categoryPath := filepath.Join(dir, category)
 		if err := createCategoryFolder(categoryPath); err != nil {
 			return fmt.Errorf("create category folder: %v", err)
 		}
 	}
 
-	return copyAllEmbedFileIntoFolder("embeds/config", dir)
+	return copyAllEmbedFileIntoFolder("embeds/config", filepath.Join(dir, GZCTF_DIR))
 }
 
 func createCategoryFolder(categoryPath string) error {

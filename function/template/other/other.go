@@ -2,6 +2,7 @@ package other
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/dimasma0305/ctfify/function/template"
@@ -34,8 +35,11 @@ type CTFInfo struct {
 
 func randomize(n int) string {
 	b := make([]byte, n)
-	rand.Read(b)
-	return string(b)
+	_, err := rand.Read(b)
+	if err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
 }
 
 func getUserInput(str string) string {

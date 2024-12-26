@@ -10,6 +10,7 @@ import (
 
 	"github.com/dimasma0305/ctfify/function/gzcli"
 	"github.com/dimasma0305/ctfify/function/log"
+	"github.com/dimasma0305/ctfify/function/template/other"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +26,7 @@ var gzcliCmd = &cobra.Command{
 			if err := gz.InitFolder(); err != nil {
 				log.Fatal(err)
 			}
+			other.CTFTemplate(".", map[string]string{})
 			return
 		}
 
