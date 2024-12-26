@@ -23,9 +23,9 @@ var gzcliCmd = &cobra.Command{
 		var gz *gzcli.GZ
 		var err error
 		if init, _ := cmd.Flags().GetBool("init"); init {
-			if err := gz.InitFolder(); err != nil {
-				log.Fatal(err)
-			}
+			// if err := gz.InitFolder(); err != nil {
+			// 	log.Fatal(err)
+			// }
 			other.CTFTemplate(".", map[string]string{})
 			return
 		}
