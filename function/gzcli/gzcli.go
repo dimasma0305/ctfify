@@ -211,11 +211,11 @@ func (gz *GZ) RunScripts(script string) error {
 		if _, ok := challengeConf.Scripts[script]; ok {
 			threadChan <- struct{}{}
 			wg.Add(1)
-			go func(challengeConf ChallengeConf, script string) {
+			go func(challengeConf ChallengeYaml, script string) {
 				defer wg.Done()
 				defer func() { <-threadChan }()
 				if err := runScript(challengeConf, script); err != nil {
-					log.Println(err)
+					log.ErrorH2("thread error: %s", err)
 				}
 			}(challengeConf, script)
 		}
