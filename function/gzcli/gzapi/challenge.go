@@ -56,6 +56,7 @@ func (c *Challenge) Refresh() (*Challenge, error) {
 type CreateChallengeForm struct {
 	Title    string `json:"title"`
 	Category string `json:"category"`
+	Tag      string `json:"tag"`
 	Type     string `json:"type"`
 }
 

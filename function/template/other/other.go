@@ -9,19 +9,19 @@ import (
 )
 
 func ReadFlag(destination string) {
-	template.TemplateToDestinationThrowError("templates/others/readflag", "", destination)
+	template.TemplateToDestination("templates/others/readflag", "", destination)
 }
 
 func Writeup(destination string, info any) {
-	template.TemplateToDestinationThrowError("templates/others/writeup", info, destination)
+	template.TemplateToDestination("templates/others/writeup", info, destination)
 }
 
 func POC(destination string, info any) {
-	template.TemplateToDestinationThrowError("templates/others/poc", info, destination)
+	template.TemplateToDestination("templates/others/poc", info, destination)
 }
 
 func JavaExploitationPlus(destination string, info any) {
-	template.TemplateToDestinationThrowError("templates/others/java-exploit-plus", info, destination)
+	template.TemplateToDestination("templates/others/java-exploit-plus", info, destination)
 }
 
 type CTFInfo struct {
@@ -56,10 +56,10 @@ func CTFTemplate(destination string, info any) {
 	ctfInfo := &CTFInfo{
 		XorKey:         randomize(16),
 		Username:       "admin",
-		Password:       randomize(16),
+		Password:       "ADMIN" + randomize(16) + "ADMIN",
 		Url:            url,
 		PublicEntry:    publicEntry,
 		DiscordWebhook: discordWebhook,
 	}
-	template.TemplateToDestinationThrowError("templates/others/ctf-template", ctfInfo, destination)
+	template.TemplateToDestination("templates/others/ctf-template", ctfInfo, destination)
 }

@@ -17,8 +17,15 @@ import (
 )
 
 func NormalizeFileName(name string) string {
-	re := regexp.MustCompile("[^a-zA-Z0-9\\-_ ]+")
+	re := regexp.MustCompile(`[^a-zA-Z0-9\-_ ]+`)
 	return strings.ToLower(re.ReplaceAllString(name, ""))
+}
+
+func ParseYamlFromBytes(b []byte, data any) error {
+	if err := yaml.Unmarshal(b, data); err != nil {
+		return fmt.Errorf("error unmarshal yaml: %w", err)
+	}
+	return nil
 }
 
 func ParseYamlFromFile(confPath string, data any) error {
@@ -26,12 +33,7 @@ func ParseYamlFromFile(confPath string, data any) error {
 	if err != nil {
 		return fmt.Errorf("error read conf.yaml: %w", err)
 	}
-
-	if err := yaml.Unmarshal(confFile, data); err != nil {
-		return fmt.Errorf("error unmarshal yaml: %w", err)
-	}
-
-	return nil
+	return ParseYamlFromBytes(confFile, data)
 }
 
 func GetFileHashHex(file string) (string, error) {

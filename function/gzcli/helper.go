@@ -3,11 +3,9 @@ package gzcli
 import (
 	"bytes"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"text/template"
 
@@ -107,27 +105,16 @@ func renderTemplate(str string, opts map[string]string) string {
 	return buff.String()
 }
 
-func renderDescriptionTemplate(config *Config, str string) string {
-	parsedURL, err := url.Parse(config.Url)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return renderTemplate(str, map[string]string{
-		"host": parsedURL.Host,
-	})
-}
-
 func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gzapi.Challenge, api *gzapi.GZAPI) error {
 	var challengeData *gzapi.Challenge
 	var err error
-
-	challengeConf.Description = renderDescriptionTemplate(config, challengeConf.Description)
 
 	if !isChallengeExist(challengeConf.Name, challenges) {
 		log.Info("Create challenge %s", challengeConf.Name)
 		challengeData, err = config.Event.CreateChallenge(gzapi.CreateChallengeForm{
 			Title:    challengeConf.Name,
 			Category: challengeConf.Category,
+			Tag:      challengeConf.Category,
 			Type:     challengeConf.Type,
 		})
 		if err != nil {
@@ -272,27 +259,14 @@ func updateChallengeFlags(config *Config, challengeConf ChallengeYaml, challenge
 	return nil
 }
 
-func generateSlug(challengeConf ChallengeYaml) string {
-	slug := fmt.Sprintf("%s_%s", challengeConf.Category, challengeConf.Name)
-	slug = strings.ToLower(slug)
-	slug = strings.ReplaceAll(slug, " ", "_")
-
-	re := regexp.MustCompile(`[^a-z0-9_]+`)
-	slug = re.ReplaceAllString(slug, "")
-
-	return slug
-}
-
 var shell = os.Getenv("SHELL")
 
 func runScript(challengeConf ChallengeYaml, script string) error {
 	if challengeConf.Scripts[script] == "" {
 		return nil
 	}
-	command := renderTemplate(challengeConf.Scripts[script], map[string]string{
-		"slug": generateSlug(challengeConf),
-	})
-	return runShell(command, challengeConf.Cwd)
+	log.InfoH2("Running:\n%s", challengeConf.Scripts[script])
+	return runShell(challengeConf.Scripts[script], challengeConf.Cwd)
 }
 
 func runShell(script string, cwd string) error {

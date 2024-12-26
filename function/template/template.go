@@ -15,44 +15,42 @@ import (
 )
 
 var (
-	//go:embed all:templates/*
+	//go:embed all:templates
 	File embed.FS
 )
 
-func TemplateToDestinationThrowError(file string, info interface{}, destination string) {
-	if err := TemplateToDestination(file, info, destination); err != nil {
-		log.Fatal(err)
-	}
-}
-
 // TemplateToDestination reads a template from the embedded file system and writes it to the destination.
 // If it's a folder, it recursively writes its contents to the destination. If it's a file, it writes that file to the destination.
-func TemplateToDestination(file string, info interface{}, destination string) error {
+func TemplateToDestination(file string, info interface{}, destination string) {
 	// Check if the template is a directory
 	dirEntries, err := File.ReadDir(file)
 	if err == nil { // It's a directory
-		return processDirectory(file, dirEntries, info, destination)
+		err = processDirectory(file, dirEntries, info, destination)
+		if err != nil {
+			log.ErrorH2("%s", err)
+		}
+		return
 	}
 	// It's a file, process the template
-	return processFile(file, info, destination)
+	err = processFile(file, info, destination)
+	if err != nil {
+		log.ErrorH2("%s", err)
+	}
 }
 
 func processDirectory(directory string, dirEntries []os.DirEntry, info interface{}, destination string) error {
 	// Create the destination directory
 	err := os.MkdirAll(destination, os.ModePerm)
 	if err != nil {
-		return err
+		return fmt.Errorf("can't make directory: %s", err)
 	}
 
 	// Recursively process each file in the directory
 	for _, entry := range dirEntries {
 		entryPath := filepath.Join(directory, entry.Name())
 		destPath := filepath.Join(destination, entry.Name())
-		if err := TemplateToDestination(entryPath, info, destPath); err != nil {
-			return err
-		}
+		TemplateToDestination(entryPath, info, destPath)
 	}
-
 	return nil
 }
 

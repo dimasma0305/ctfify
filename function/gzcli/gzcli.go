@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -179,13 +180,23 @@ func (gz *GZ) Scoreboard2CTFTimeFeed() (*CTFTimeFeed, error) {
 }
 
 func (gz *GZ) RunScripts(script string) error {
-	challengesConf, err := GetChallengesYaml()
+	challengesConf, err := GetChallengesYaml(&Config{})
 	if err != nil {
 		return err
 	}
 
+	base := path.Base(script)
+	dir, _ := filepath.Abs(path.Dir(script))
 	for _, challengeConf := range challengesConf {
 		log.Info("Running %s...", challengeConf.Name)
+		if strings.Contains(script, "/") {
+			if dir == challengeConf.Cwd {
+				if err := runScript(challengeConf, base); err != nil {
+					return err
+				}
+				break
+			}
+		}
 		if _, ok := challengeConf.Scripts[script]; ok {
 			if err := runScript(challengeConf, script); err != nil {
 				return err
@@ -201,7 +212,7 @@ func (gz *GZ) Sync() error {
 		return err
 	}
 
-	challengesConf, err := GetChallengesYaml()
+	challengesConf, err := GetChallengesYaml(config)
 	if err != nil {
 		return err
 	}

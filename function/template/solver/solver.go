@@ -5,17 +5,17 @@ import (
 )
 
 func PWN(destination string) {
-	template.TemplateToDestinationThrowError("templates/solver/pwn", "", destination)
+	template.TemplateToDestination("templates/solver/pwn", "", destination)
 }
 func Web(destination string) {
-	template.TemplateToDestinationThrowError("templates/solver/web", "", destination)
+	template.TemplateToDestination("templates/solver/web", "", destination)
 }
 func Web3(destination string) {
-	template.TemplateToDestinationThrowError("templates/solver/web3", "", destination)
+	template.TemplateToDestination("templates/solver/web3", "", destination)
 }
 func WebPWN(destination string) {
-	template.TemplateToDestinationThrowError("templates/solver/webPwn", "", destination)
+	template.TemplateToDestination("templates/solver/webPwn", "", destination)
 }
 func WebServer(destination string) {
-	template.TemplateToDestinationThrowError("templates/solver/webServer", "", destination)
+	template.TemplateToDestination("templates/solver/webServer", "", destination)
 }
