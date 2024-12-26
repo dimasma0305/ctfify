@@ -16,6 +16,7 @@ var proxyFlag struct {
 	web                  bool
 	webAddr              string
 	reflectedXSS         bool
+	crossOriginChecker   bool
 	requestMapper        bool
 	requestMapperSaveDir string
 	requestMapperRegex   string
@@ -64,6 +65,7 @@ func init() {
 	proxyCmd.Flags().BoolVar(&proxyFlag.web, "web", false, "activate web interface")
 	proxyCmd.Flags().StringVar(&proxyFlag.webAddr, "web-addr", ":8000", "set web interface address")
 	proxyCmd.Flags().BoolVar(&proxyFlag.reflectedXSS, "reflected-xss", false, "activate reflected xss addon")
+	proxyCmd.Flags().BoolVar(&proxyFlag.crossOriginChecker, "cross-origin-checker", false, "activate cross origin checker")
 	proxyCmd.Flags().BoolVar(&proxyFlag.requestMapper, "request-mapper", false, "activate request mapper")
 	proxyCmd.Flags().StringVar(&proxyFlag.requestMapperSaveDir, "request-mapper-dir", ".", "request mapper save dir")
 	proxyCmd.Flags().StringVar(&proxyFlag.requestMapperRegex, "request-mapper-regex", "^.*$", "request mapper regex")

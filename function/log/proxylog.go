@@ -44,3 +44,16 @@ func (l *LogStruct) Errorf(format string, args ...interface{}) {
 		fmt.Sprintf(format, args...),
 	)
 }
+
+func (l *LogStruct) Warnf(format string, args ...interface{}) {
+	log.Warnf(
+		"%s%s: %s\n",
+		color.YellowString("[%s]", l.name),
+		color.CyanString(
+			"[%s][%s][%s]",
+			l.flow.ConnContext.ClientConn.Conn.RemoteAddr(),
+			l.flow.Request.Method,
+		),
+		fmt.Sprintf(format, args...),
+	)
+}
