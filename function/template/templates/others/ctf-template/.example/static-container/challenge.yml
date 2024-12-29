@@ -1,9 +1,9 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/dimasma0305/ctfify/refs/heads/master/function/template/templates/others/ctf-template/.gzctf/challenge.schema.yaml
 
-name: "static-attachment"
+name: "static-container"
 author: "dimas"
 description: |
-  Example static attachment
+  Example static container
 
   Connect: nc {{ .host }} 8011
 
