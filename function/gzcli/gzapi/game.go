@@ -38,7 +38,18 @@ func (ct *CustomTime) UnmarshalJSON(b []byte) error {
 	// The input comes as a number (milliseconds since epoch).
 	var ms int64
 	if err := json.Unmarshal(b, &ms); err != nil {
-		return err
+		// Try to parse as a string.
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return fmt.Errorf("invalid time format: %s", string(b))
+		}
+		// Parse the string as a time.
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			return fmt.Errorf("invalid time format: %s", s)
+		}
+		ct.Time = t
+		return nil
 	}
 
 	// Convert milliseconds to seconds and set the time.
