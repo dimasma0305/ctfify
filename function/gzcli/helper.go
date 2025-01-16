@@ -1,13 +1,11 @@
 package gzcli
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"text/template"
 
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
 	"github.com/dimasma0305/ctfify/function/log"
@@ -89,20 +87,6 @@ func validateChallenges(challengesConf []ChallengeYaml) error {
 		log.Info("Challenge %s is valid.", challengeConf.Cwd)
 	}
 	return nil
-}
-
-func renderTemplate(str string, opts map[string]string) string {
-	tmpl, err := template.New("template").Parse(str)
-	if err != nil {
-		log.Fatal(fmt.Errorf("error parsing template: %v", err))
-	}
-
-	var buff bytes.Buffer
-	err = tmpl.Execute(&buff, opts)
-	if err != nil {
-		log.Fatal(fmt.Errorf("error executing description template: %v", err))
-	}
-	return buff.String()
 }
 
 func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gzapi.Challenge, api *gzapi.GZAPI) error {

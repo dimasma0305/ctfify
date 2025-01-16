@@ -92,7 +92,7 @@ func Init() (*GZ, error) {
 			Username: config.Creds.Username,
 			Password: config.Creds.Password,
 		}); err != nil {
-			log.Error(err.Error())
+			log.Error("%s", err.Error())
 			log.Error("failed registering the account")
 			if strings.Contains(err.Error(), "This account already exists") {
 				log.Info("Trying to change the role of the user")

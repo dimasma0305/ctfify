@@ -14,7 +14,7 @@ func (gz *GZ) DeleteAllUser() error {
 	for t := range teams {
 		log.Info("deleting team %s", teams[t].Name)
 		if err := teams[t].Delete(); err != nil {
-			log.Error(err.Error())
+			log.Error("%s", err.Error())
 		}
 	}
 	users, err := gz.api.Users()
@@ -25,7 +25,7 @@ func (gz *GZ) DeleteAllUser() error {
 	for i := range users {
 		log.Info("deleting user %s", users[i].UserName)
 		if err := users[i].Delete(); err != nil {
-			log.Error(err.Error())
+			log.Error("%s", err.Error())
 		}
 	}
 	return nil

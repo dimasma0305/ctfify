@@ -356,7 +356,7 @@ func parseCSV(data []byte, gz *GZ, config *Config, isSendEmail bool) error {
 	// Load existing team credentials from cache
 	var teamsCredsCache []*TeamCreds
 	if err := GetCache("teams_creds", &teamsCredsCache); err != nil {
-		log.Error(err.Error())
+		log.Error("%s", err.Error())
 	}
 
 	// Create a map for quick lookup of existing credentials by email
@@ -380,7 +380,7 @@ func parseCSV(data []byte, gz *GZ, config *Config, isSendEmail bool) error {
 			TeamName: teamName,
 		}, config, existingTeamNames, uniqueUsernames, teamsCredsCache, isSendEmail)
 		if err != nil {
-			log.Error(err.Error())
+			log.Error("%s", err.Error())
 			continue
 		}
 
