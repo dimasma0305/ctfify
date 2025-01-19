@@ -247,10 +247,10 @@ func (gz *GZ) Sync() error {
 		return gz.Sync()
 	}
 
-	err = updateGameIfNeeded(config, currentGame, gz.api)
-	if err != nil {
-		return err
-	}
+	// err = updateGameIfNeeded(config, currentGame, gz.api)
+	// if err != nil {
+	// 	return err
+	// }
 
 	err = validateChallenges(challengesConf)
 	if err != nil {
