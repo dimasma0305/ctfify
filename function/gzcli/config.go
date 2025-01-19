@@ -47,6 +47,7 @@ func GetConfig(api *gzapi.GZAPI) (*Config, error) {
 		if api != nil && api.Client != nil {
 			game, err := api.GetGameByTitle(config.Event.Title)
 			if err != nil {
+				log.Error("error getting the game title: %s", err)
 				game, err = createNewGame(&config, api)
 				if err != nil {
 					return nil, err

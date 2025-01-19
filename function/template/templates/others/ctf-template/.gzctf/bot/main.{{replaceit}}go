@@ -70,6 +70,13 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	
+	embed := discord.NewEmbedBuilder().
+		SetTitle("Successfully Integrated To The CTFIFY GZCLI BOT ~ by TCP1P Community").
+		SetDescription(fmt.Sprintf("Thank you for using our service :)")).
+		SetColor(0x00ff00).
+		Build()
+	client.CreateEmbeds([]discord.Embed{embed})
 
 	for {
 		var newNotices []GameNotice

@@ -61,7 +61,7 @@ func (cs *GZAPI) GetGames() ([]*Game, error) {
 	var data struct {
 		Data []*Game `json:"data"`
 	}
-	if err := cs.get("/api/edit/games?count=9999&skip=0", &data); err != nil {
+	if err := cs.get("/api/edit/games?count=100&skip=0", &data); err != nil {
 		return nil, err
 	}
 	for _, game := range data.Data {
@@ -86,6 +86,7 @@ func (cs *GZAPI) GetGameByTitle(title string) (*Game, error) {
 		return nil, err
 	}
 	for _, game := range games {
+		fmt.Println(game.Title, title)
 		if game.Title == title {
 			return game, nil
 		}

@@ -82,7 +82,7 @@ func Init() (*GZ, error) {
 	config, err := GetConfig(&gzapi.GZAPI{})
 	defaultEmail := "admin@localhost"
 	if err != nil {
-		return nil, fmt.Errorf("error getting the config")
+		return nil, fmt.Errorf("error getting the config: %s", err)
 	}
 	api, err := gzapi.Init(config.Url, &config.Creds)
 	if err != nil {
