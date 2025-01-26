@@ -70,7 +70,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	
+
 	embed := discord.NewEmbedBuilder().
 		SetTitle("Successfully Integrated To The CTFIFY GZCLI BOT ~ by TCP1P Community").
 		SetDescription(fmt.Sprintf("Thank you for using our service :)")).

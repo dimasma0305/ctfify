@@ -1,12 +1,9 @@
-/*
-Copyright © 2024 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/dimasma0305/ctfify/function/gzcli"
 	"github.com/dimasma0305/ctfify/function/log"
@@ -14,95 +11,81 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// gzcliCmd represents the gzcli command
+type tcommandFlags struct {
+	initFlag         bool
+	syncFlag         bool
+	ctftimeFlag      bool
+	scriptFlag       string
+	createTeamsFlag  string
+	createTeamsEmail string
+	deleteUsersFlag  bool
+	updateGameFlag   bool
+}
+
+var commandFlags tcommandFlags
+
+// gzcliCmd represents the optimized gzcli command
 var gzcliCmd = &cobra.Command{
 	Use:   "gzcli",
-	Short: "gzcli is a command line interface for gz::ctf",
-	Long:  `gzcli is a command line interface for gz::ctf`,
+	Short: "High-performance CLI for gz::ctf",
+	Long:  `Optimized command line interface for gz::ctf operations`,
 	Run: func(cmd *cobra.Command, args []string) {
-		var gz *gzcli.GZ
-		var err error
-		if init, _ := cmd.Flags().GetBool("init"); init {
-			// if err := gz.InitFolder(); err != nil {
-			// 	log.Fatal(err)
-			// }
+		switch {
+		case commandFlags.initFlag:
 			other.CTFTemplate(".", map[string]string{})
 			return
-		}
 
-		if sync, _ := cmd.Flags().GetBool("sync"); sync {
-			if gz, err = gzcli.Init(); err != nil {
-				log.Fatal(err)
-			}
-			if err := gz.Sync(); err != nil {
-				log.Fatal(err)
-			}
-			return
-		}
+		case commandFlags.syncFlag:
+			gz := gzcli.MustInit()
+			gz.UpdateGame = commandFlags.updateGameFlag
+			gz.MustSync()
 
-		if ctftime, _ := cmd.Flags().GetBool("ctftime-scoreboard"); ctftime {
-			if gz, err = gzcli.Init(); err != nil {
-				log.Fatal(err)
-			}
-			feed, err := gz.Scoreboard2CTFTimeFeed()
-			if err != nil {
-				log.Fatal(err)
-			}
-			b, err := json.Marshal(feed)
-			if err != nil {
-				log.Fatal(err)
-			}
-			var out bytes.Buffer
-			err = json.Indent(&out, b, "", "  ")
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Println(out.String())
-			return
-		}
+		case commandFlags.ctftimeFlag:
+			generateCTFTimeFeed(gzcli.MustInit())
 
-		if script, _ := cmd.Flags().GetString("run-script"); script != "" {
-			if err := gz.RunScripts(script); err != nil {
-				log.Fatal(err)
-			}
-			return
-		}
+		case commandFlags.scriptFlag != "":
+			gzcli.MustRunScripts(commandFlags.scriptFlag)
 
-		if url, _ := cmd.Flags().GetString("create-teams"); url != "" {
-			if err := gz.CreateTeams(url, false); err != nil {
-				log.Fatal(err)
-			}
-			return
-		}
+		case commandFlags.createTeamsFlag != "":
+			handleTeamCreation(commandFlags.createTeamsFlag, false)
 
-		if url, _ := cmd.Flags().GetString("create-teams-and-send-email"); url != "" {
-			if err := gz.CreateTeams(url, true); err != nil {
-				log.Fatal(err)
-			}
-			return
-		}
+		case commandFlags.createTeamsEmail != "":
+			handleTeamCreation(commandFlags.createTeamsEmail, true)
 
-		if ok, _ := cmd.Flags().GetBool("delete-all-user"); ok {
-			if gz, err = gzcli.Init(); err != nil {
-				log.Fatal(err)
-			}
-			if err := gz.DeleteAllUser(); err != nil {
-				log.Fatal(err)
-			}
-			return
-		}
+		case commandFlags.deleteUsersFlag:
+			gzcli.MustInit().MustDeleteAllUser()
 
-		cmd.Help()
+		default:
+			cmd.Help()
+		}
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(gzcliCmd)
-	gzcliCmd.Flags().Bool("init", false, "init gzcli")
-	gzcliCmd.Flags().Bool("sync", false, "update gzcli")
-	gzcliCmd.Flags().Bool("ctftime-scoreboard", false, "generate ctftime scoreboard feed")
-	gzcliCmd.Flags().String("run-script", "", "run script")
-	gzcliCmd.Flags().String("create-teams", "", "create team batch")
-	gzcliCmd.Flags().String("create-teams-and-send-email", "", `delete all user []string{"RealName", "Email", "TeamName"}`)
-	gzcliCmd.Flags().Bool("delete-all-user", false, "delete all user")
+	flags := gzcliCmd.Flags()
+
+	flags.BoolVar(&commandFlags.initFlag, "init", false, "Initialize new CTF structure")
+	flags.BoolVar(&commandFlags.syncFlag, "sync", false, "Synchronize CTF data")
+	flags.BoolVar(&commandFlags.ctftimeFlag, "ctftime-scoreboard", false, "Generate CTFTime scoreboard feed")
+	flags.StringVar(&commandFlags.scriptFlag, "run-script", "", "Execute custom script")
+	flags.StringVar(&commandFlags.createTeamsFlag, "create-teams", "", "Batch create teams")
+	flags.StringVar(&commandFlags.createTeamsEmail, "create-teams-and-send-email", "", "Create teams and send emails")
+	flags.BoolVar(&commandFlags.deleteUsersFlag, "delete-all-user", false, "Remove all users")
+	flags.BoolVar(&commandFlags.updateGameFlag, "update-game", false, "Update the game")
+}
+
+func generateCTFTimeFeed(gz *gzcli.GZ) {
+	feed := gz.MustScoreboard2CTFTimeFeed()
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(feed); err != nil {
+		log.Fatal(fmt.Errorf("JSON encoding failed: %w", err))
+	}
+}
+
+func handleTeamCreation(url string, sendEmail bool) {
+	if err := gzcli.MustInit().CreateTeams(url, sendEmail); err != nil {
+		log.Fatal(err)
+	}
 }

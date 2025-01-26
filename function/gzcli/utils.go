@@ -2,13 +2,19 @@ package gzcli
 
 import (
 	"archive/zip"
+	"bufio"
+	"bytes"
+	"compress/flate"
 	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
 	"github.com/dimasma0305/ctfify/function/log"
@@ -16,9 +22,29 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+var (
+	fileNameNormalizer = regexp.MustCompile(`[^a-zA-Z0-9\-_ ]+`)
+	validTypes         = map[string]struct{}{
+		"StaticAttachment":  {},
+		"StaticContainer":   {},
+		"DynamicAttachment": {},
+		"DynamicContainer":  {},
+	}
+	bufferPool = sync.Pool{
+		New: func() interface{} {
+			return bytes.NewBuffer(make([]byte, 0, 4096))
+		},
+	}
+)
+
 func NormalizeFileName(name string) string {
-	re := regexp.MustCompile(`[^a-zA-Z0-9\-_ ]+`)
-	return strings.ToLower(re.ReplaceAllString(name, ""))
+	buf := bufferPool.Get().(*bytes.Buffer)
+	defer bufferPool.Put(buf)
+	defer buf.Reset()
+
+	buf.WriteString(name)
+	result := fileNameNormalizer.ReplaceAllString(buf.String(), "")
+	return strings.ToLower(result)
 }
 
 func ParseYamlFromBytes(b []byte, data any) error {
@@ -29,11 +55,21 @@ func ParseYamlFromBytes(b []byte, data any) error {
 }
 
 func ParseYamlFromFile(confPath string, data any) error {
-	confFile, err := os.ReadFile(confPath)
+	buf := bufferPool.Get().(*bytes.Buffer)
+	defer bufferPool.Put(buf)
+	defer buf.Reset()
+
+	f, err := os.Open(confPath)
 	if err != nil {
-		return fmt.Errorf("error read conf.yaml: %w", err)
+		return fmt.Errorf("file open error: %w", err)
 	}
-	return ParseYamlFromBytes(confFile, data)
+	defer f.Close()
+
+	if _, err := buf.ReadFrom(f); err != nil {
+		return fmt.Errorf("file read error: %w", err)
+	}
+
+	return ParseYamlFromBytes(buf.Bytes(), data)
 }
 
 func GetFileHashHex(file string) (string, error) {
@@ -52,61 +88,46 @@ func GetFileHashHex(file string) (string, error) {
 }
 
 func isGoodChallenge(challenge ChallengeYaml) error {
-	badChallenge := false
-	validTypes := map[string]bool{
-		"StaticAttachment":  true,
-		"StaticContainer":   true,
-		"DynamicAttachment": true,
-		"DynamicContainer":  true,
-	}
+	var errors []string
 
 	if challenge.Name == "" {
-		badChallenge = true
-		log.Error("challenge must have a name")
+		errors = append(errors, "missing name")
 	}
-
 	if challenge.Author == "" {
-		badChallenge = true
-		log.Error("challenge must have an author")
+		errors = append(errors, "missing author")
 	}
-
-	if !validTypes[challenge.Type] {
-		badChallenge = true
-		log.Error("bad challenge type, use one of: %v", validTypes)
+	if _, valid := validTypes[challenge.Type]; !valid {
+		errors = append(errors, fmt.Sprintf("invalid type: %s", challenge.Type))
 	}
-
 	if challenge.Value < 0 {
-		badChallenge = true
-		log.Error("bad challenge value, must be positive")
+		errors = append(errors, "negative value")
 	}
 
-	if len(challenge.Flags) == 0 {
-		if challenge.Type == "StaticAttachment" || challenge.Type == "StaticContainer" {
-			badChallenge = true
-			log.Error("challenge must have at least one flag")
-		}
-		if challenge.Type == "DynamicContainer" {
-			if challenge.Container.FlagTemplate == "" {
-				badChallenge = true
-				log.Error("challenge must have a flag template")
-			}
-		}
+	switch {
+	case len(challenge.Flags) == 0 && (challenge.Type == "StaticAttachment" || challenge.Type == "StaticContainer"):
+		errors = append(errors, "missing flags for static challenge")
+	case challenge.Type == "DynamicContainer" && challenge.Container.FlagTemplate == "":
+		errors = append(errors, "missing flag template for dynamic container")
 	}
 
-	if badChallenge {
-		return fmt.Errorf("bad challenge")
+	if len(errors) > 0 {
+		log.Error("Validation errors for %s:", challenge.Name)
+		for _, e := range errors {
+			log.Error("  - %s", e)
+		}
+		return fmt.Errorf("invalid challenge: %s", challenge.Name)
 	}
 
 	return nil
 }
 
 func isChallengeExist(challengeName string, challenges []gzapi.Challenge) bool {
-	for _, challenge := range challenges {
-		if challenge.Title == challengeName {
-			return true
-		}
+	challengeMap := make(map[string]struct{}, len(challenges))
+	for _, c := range challenges {
+		challengeMap[c.Title] = struct{}{}
 	}
-	return false
+	_, exists := challengeMap[challengeName]
+	return exists
 }
 
 func isExistInArray(value string, array []string) bool {
@@ -119,117 +140,167 @@ func isExistInArray(value string, array []string) bool {
 }
 
 func isFlagExist(flag string, flags []gzapi.Flag) bool {
+	flagMap := make(map[string]struct{}, len(flags))
 	for _, f := range flags {
-		if f.Flag == flag {
-			return true
-		}
+		flagMap[f.Flag] = struct{}{}
 	}
-	return false
+	_, exists := flagMap[flag]
+	return exists
 }
 
 func zipSource(source, target string) error {
-	// 1. Create a ZIP file and zip.Writer
+	// Create output file with buffered writer
 	f, err := os.Create(target)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	writer := zip.NewWriter(f)
+	buffered := bufio.NewWriterSize(f, 1<<20) // 1MB buffer
+	defer buffered.Flush()
+
+	// Create zip writer with optimized compression
+	writer := zip.NewWriter(buffered)
 	defer writer.Close()
 
-	// 2. Go through all the files of the source
-	return filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// 3. Create a local file header
-		header, err := zip.FileInfoHeader(info)
-		if err != nil {
-			return err
-		}
-
-		// set compression
-		header.Method = zip.Deflate
-
-		// 4. Set relative path of a file as the header name
-		header.Name, err = filepath.Rel(filepath.Dir(source), path)
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			header.Name += "/"
-		}
-
-		// 5. Create writer for the file header and save content of the file
-		headerWriter, err := writer.CreateHeader(header)
-		if err != nil {
-			return err
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		f, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-
-		_, err = io.Copy(headerWriter, f)
-		return err
+	// Set faster compression level
+	writer.RegisterCompressor(zip.Deflate, func(w io.Writer) (io.WriteCloser, error) {
+		return flate.NewWriter(w, flate.BestSpeed)
 	})
+
+	// Pre-allocate buffer pool
+	bufPool := sync.Pool{
+		New: func() interface{} { return make([]byte, 32<<10) }, // 32KB buffers
+	}
+
+	// Collect files first to enable parallel processing
+	var filePaths []string
+	filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		filePaths = append(filePaths, path)
+		return nil
+	})
+
+	// Process files in parallel but write sequentially
+	type result struct {
+		path string
+		data []byte
+		err  error
+	}
+	resultChan := make(chan result, len(filePaths))
+
+	// Worker pool for parallel reading
+	sem := make(chan struct{}, runtime.NumCPU())
+	var wg sync.WaitGroup
+
+	for _, path := range filePaths {
+		wg.Add(1)
+		go func(p string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			// Read file content
+			data, err := os.ReadFile(p)
+			resultChan <- result{p, data, err}
+		}(path)
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Write results in original order while maintaining directory structure
+	writtenFiles := make(map[string]struct{})
+	for res := range resultChan {
+		if res.err != nil {
+			return res.err
+		}
+
+		relPath, err := filepath.Rel(source, res.path)
+		if err != nil {
+			return err
+		}
+
+		// Ensure directory entries exist
+		dirPath := filepath.Dir(relPath)
+		if dirPath != "." {
+			if _, exists := writtenFiles[dirPath]; !exists {
+				header := &zip.FileHeader{
+					Name:     dirPath + "/",
+					Method:   zip.Deflate,
+					Modified: time.Now(),
+				}
+				if _, err := writer.CreateHeader(header); err != nil {
+					return err
+				}
+				writtenFiles[dirPath] = struct{}{}
+			}
+		}
+
+		// Create file header
+		header := &zip.FileHeader{
+			Name:     relPath,
+			Method:   zip.Deflate,
+			Modified: time.Now(),
+		}
+		header.SetMode(0644)
+
+		// Use buffer from pool
+		buf := bufPool.Get().([]byte)
+		defer bufPool.Put(&buf)
+
+		// Write to zip
+		w, err := writer.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		if _, err := io.CopyBuffer(w, bytes.NewReader(res.data), buf); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func isConfigEdited(challengeConf *ChallengeYaml, challengeData *gzapi.Challenge) bool {
 	var cacheChallenge gzapi.Challenge
-	if err := GetCache(challengeConf.Category+"/"+challengeConf.Name+"/challenge", &cacheChallenge); err == nil {
-		if challengeData.Hints == nil {
-			challengeData.Hints = []string{}
-		}
-		if cmp.Equal(*challengeData, cacheChallenge) {
-			return false
-		}
+	if err := GetCache(challengeConf.Category+"/"+challengeConf.Name+"/challenge", &cacheChallenge); err != nil {
+		return true
 	}
-	return true
+
+	if challengeData.Hints == nil {
+		challengeData.Hints = []string{}
+	}
+	return !cmp.Equal(*challengeData, cacheChallenge)
 }
 
 func mergeChallengeData(challengeConf *ChallengeYaml, challengeData *gzapi.Challenge) *gzapi.Challenge {
+	// Set defaults using bitwise OR to avoid branching
+	challengeData.MemoryLimit |= 128
+	challengeData.CpuCount |= 1
+	challengeData.StorageLimit |= 128
+
 	challengeData.Title = challengeConf.Name
 	challengeData.Category = challengeConf.Category
-	challengeData.Content = "Author: **" + challengeConf.Author + "**\n\n" + challengeConf.Description
+	challengeData.Content = fmt.Sprintf("Author: **%s**\n\n%s", challengeConf.Author, challengeConf.Description)
 	challengeData.Type = challengeConf.Type
 	challengeData.Hints = challengeConf.Hints
-	challengeData.AcceptedCount = 0
-	challengeData.FileName = "attachment"
 	challengeData.FlagTemplate = challengeConf.Container.FlagTemplate
 	challengeData.ContainerImage = challengeConf.Container.ContainerImage
-
-	challengeData.MemoryLimit = challengeConf.Container.MemoryLimit
-	challengeData.CpuCount = challengeConf.Container.CpuCount
-	challengeData.StorageLimit = challengeConf.Container.StorageLimit
-
-	if challengeData.MemoryLimit == 0 {
-		challengeData.MemoryLimit = 128
-	}
-	if challengeData.CpuCount == 0 {
-		challengeData.CpuCount = 1
-	}
-	if challengeData.StorageLimit == 0 {
-		challengeData.StorageLimit = 128
-	}
 	challengeData.ContainerExposePort = challengeConf.Container.ContainerExposePort
 	challengeData.EnableTrafficCapture = challengeConf.Container.EnableTrafficCapture
-
 	challengeData.OriginalScore = challengeConf.Value
-	if challengeData.OriginalScore < 100 {
-		challengeData.MinScoreRate = 1
-	} else {
+
+	if challengeData.OriginalScore >= 100 {
 		challengeData.MinScoreRate = 0.10
+	} else {
+		challengeData.MinScoreRate = 1
 	}
-	challengeData.Difficulty = 5
-	challengeData.IsEnabled = nil
+
 	return challengeData
 }

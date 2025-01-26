@@ -76,16 +76,40 @@ func updateGameIfNeeded(config *Config, currentGame *gzapi.Game, api *gzapi.GZAP
 }
 
 func validateChallenges(challengesConf []ChallengeYaml) error {
+	// Track seen names and duplicate occurrences
+	seenNames := make(map[string]int, len(challengesConf))
+	var duplicates []string
+
+	// First pass: count occurrences
+	for _, challengeConf := range challengesConf {
+		seenNames[challengeConf.Name]++
+	}
+
+	// Collect names with duplicates
+	for name, count := range seenNames {
+		if count > 1 {
+			duplicates = append(duplicates, name)
+		}
+	}
+
+	// Return all duplicates at once
+	if len(duplicates) > 0 {
+		return fmt.Errorf("multiple challenges with the same name found:\n  - %s",
+			strings.Join(duplicates, "\n  - "))
+	}
+
+	// Existing validation logic
 	for _, challengeConf := range challengesConf {
 		if challengeConf.Type == "" {
 			challengeConf.Type = "StaticAttachments"
 		}
 		log.Info("Validating %s challenge...", challengeConf.Cwd)
 		if err := isGoodChallenge(challengeConf); err != nil {
-			return err
+			return fmt.Errorf("invalid challenge %q: %w", challengeConf.Name, err)
 		}
 		log.Info("Challenge %s is valid.", challengeConf.Cwd)
 	}
+
 	return nil
 }
 

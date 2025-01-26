@@ -1,6 +1,7 @@
 package gzcli
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,68 +9,80 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+// cacheDir caches the working directory to avoid repeated lookups
+var cacheDir = func() string {
+	dir, _ := os.Getwd()
+	return filepath.Join(dir, ".gzcli")
+}()
+
+// setCache atomically writes data to cache with proper directory creation
 func setCache(key string, data any) error {
-	dir, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	cachePath := filepath.Join(dir, ".gzcli", key+".yaml")
-	if err := os.MkdirAll(filepath.Dir(cachePath), os.ModePerm); err != nil {
-		return fmt.Errorf("error create cache directory: %w", err)
+	cachePath := filepath.Join(cacheDir, key+".yaml")
+
+	// Create cache directory with proper permissions
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0755); err != nil {
+		return fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
-	cacheFile, err := os.Create(cachePath)
+	// Atomic write pattern using temp file
+	tmpFile, err := os.CreateTemp(cacheDir, "tmp-")
 	if err != nil {
-		return fmt.Errorf("error create cache file: %w", err)
+		return fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer cacheFile.Close()
+	defer os.Remove(tmpFile.Name())
 
-	if err := yaml.NewEncoder(cacheFile).Encode(data); err != nil {
-		return fmt.Errorf("error encode data to cache file: %w", err)
+	// Use buffered writer with pre-allocated buffer
+	bw := bufio.NewWriterSize(tmpFile, 32*1024) // 32KB buffer
+	if err := yaml.NewEncoder(bw).Encode(data); err != nil {
+		return fmt.Errorf("encoding failed: %w", err)
+	}
+
+	// Flush buffer before renaming
+	if err := bw.Flush(); err != nil {
+		return fmt.Errorf("buffer flush failed: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("temp file close failed: %w", err)
+	}
+
+	// Atomic rename to final path
+	if err := os.Rename(tmpFile.Name(), cachePath); err != nil {
+		return fmt.Errorf("failed to finalize cache: %w", err)
 	}
 
 	return nil
 }
 
+// GetCache reads cached data using optimized file access
 func GetCache(key string, data any) error {
-	dir, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	cachePath := filepath.Join(dir, ".gzcli", key+".yaml")
-	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
-		return fmt.Errorf("cache not found")
-	}
+	cachePath := filepath.Join(cacheDir, key+".yaml")
 
-	cacheFile, err := os.Open(cachePath)
+	file, err := os.Open(cachePath)
 	if err != nil {
-		return fmt.Errorf("error open cache file: %w", err)
+		if os.IsNotExist(err) {
+			return fmt.Errorf("cache not found")
+		}
+		return fmt.Errorf("cache access error: %w", err)
 	}
-	defer cacheFile.Close()
+	defer file.Close()
 
-	if err := yaml.NewDecoder(cacheFile).Decode(data); err != nil {
-		return fmt.Errorf("error decode cache file: %w", err)
+	buffered := bufio.NewReader(file)
+	if err := yaml.NewDecoder(buffered).Decode(data); err != nil {
+		return fmt.Errorf("decoding error: %w", err)
 	}
 
 	return nil
 }
 
-// DeleteCache deletes the cache file associated with the given key.
+// DeleteCache removes cache files with minimal syscalls
 func DeleteCache(key string) error {
-	dir, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	cachePath := filepath.Join(dir, ".gzcli", key+".yaml")
+	cachePath := filepath.Join(cacheDir, key+".yaml")
 
-	// Check if the cache file exists
-	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
-		return fmt.Errorf("cache not found for key: %s", key)
-	}
-
-	// Delete the cache file
 	if err := os.Remove(cachePath); err != nil {
-		return fmt.Errorf("error deleting cache file: %w", err)
+		if os.IsNotExist(err) {
+			return fmt.Errorf("cache not found: %s", key)
+		}
+		return fmt.Errorf("deletion error: %w", err)
 	}
 
 	return nil

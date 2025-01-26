@@ -4,122 +4,100 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
-	"time"
 	"unicode"
 )
 
-// LeetSpeakMap defines the character replacements to make the username cooler
-var LeetSpeakMap = map[rune]string{
-	'a': "4",
-	'e': "3",
-	'i': "1",
-	'o': "0",
-	's': "5",
-	't': "7",
-	'g': "9",
+// LeetSpeakMap defines rune replacements for leetspeak transformations
+var LeetSpeakMap = map[rune]rune{
+	'a': '4',
+	'e': '3',
+	'i': '1',
+	'o': '0',
+	's': '5',
+	't': '7',
+	'g': '9',
 }
 
-// transformRandomly applies leetspeak transformation randomly and converts characters to uppercase randomly
+// transformRandomly applies leetspeak and random uppercase transformations
 func transformRandomly(s string) string {
-	rand.Seed(time.Now().UnixNano())
+	localRand := rand.New(rand.NewSource(rand.Int63())) // Local generator seeded from global source
 	var transformed strings.Builder
+	transformed.Grow(len(s)) // Pre-allocate capacity
+
 	for _, r := range s {
-		// Replace space with underscore
-		if r == ' ' {
-			transformed.WriteRune('_')
-			continue
-		}
-
-		// Randomly decide to apply leetspeak transformation
-		if replacement, exists := LeetSpeakMap[r]; exists && rand.Intn(2) == 0 {
-			transformed.WriteString(replacement)
-		} else {
-			transformed.WriteRune(r)
-		}
-
-		// Randomly decide to capitalize the character
-		if rand.Intn(2) == 0 {
-			transformedStr := transformed.String()
-			lastChar := strings.ToUpper(string(transformedStr[len(transformedStr)-1]))
-			transformedStr = transformedStr[:len(transformedStr)-1] + lastChar
-			transformed.Reset()
-			transformed.WriteString(transformedStr)
+		switch {
+		case r == ' ':
+			transformed.WriteByte('_')
+		default:
+			// Leetspeak replacement with 50% probability
+			if replacement, exists := LeetSpeakMap[r]; exists && localRand.Intn(2) == 0 {
+				transformed.WriteRune(replacement)
+			} else {
+				// Random case transformation
+				if localRand.Intn(2) == 0 {
+					r = unicode.ToUpper(r)
+				} else {
+					r = unicode.ToLower(r)
+				}
+				transformed.WriteRune(r)
+			}
 		}
 	}
 	return transformed.String()
 }
 
-// generateUsername generates a unique and cooler username based on the real name and the specified max length.
+// generateUsername generates a unique username with leetspeak transformations
 func generateUsername(realName string, maxLength int, existingUsernames map[string]struct{}) (string, error) {
-	// Convert realName to lowercase
-	baseUsername := strings.ToLower(realName)
-
-	// Remove non-alphanumeric characters except spaces
-	var usernameBuilder strings.Builder
-	for _, r := range baseUsername {
+	// Clean and normalize base username
+	var baseBuilder strings.Builder
+	for _, r := range strings.ToLower(realName) {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == ' ' {
-			usernameBuilder.WriteRune(r)
+			baseBuilder.WriteRune(r)
 		}
 	}
-	baseUsername = usernameBuilder.String()
+	baseUsername := baseBuilder.String()
 
-	// Apply random transformations: leetspeak, underscores, and random uppercase
-	baseUsername = transformRandomly(baseUsername)
-
-	// Truncate if necessary to ensure it doesn't exceed maxLength
-	if len(baseUsername) > maxLength {
-		baseUsername = baseUsername[:maxLength]
+	// Apply transformations and truncate
+	transformed := transformRandomly(baseUsername)
+	if len(transformed) > maxLength {
+		transformed = transformed[:maxLength]
 	}
 
-	// Check for uniqueness and generate a unique username if needed
-	username := baseUsername
-	i := 1
-	for {
+	// Ensure uniqueness
+	username := transformed
+	for i := 1; ; i++ {
 		if _, exists := existingUsernames[username]; !exists {
-			break
+			existingUsernames[username] = struct{}{}
+			return username, nil
 		}
-		// Append a numeric suffix to ensure uniqueness
-		suffix := fmt.Sprintf("%d", i)
-		if len(baseUsername)+len(suffix) > maxLength {
-			username = baseUsername[:maxLength-len(suffix)] + suffix
+
+		suffix := fmt.Sprint(i)
+		if newLen := len(transformed) + len(suffix); newLen <= maxLength {
+			username = transformed + suffix
 		} else {
-			username = baseUsername + suffix
+			username = transformed[:maxLength-len(suffix)] + suffix
 		}
-		i++
 	}
-
-	// Add the final username to the map of existing usernames
-	existingUsernames[username] = struct{}{}
-
-	return username, nil
 }
 
-// normalizeTeamName ensures the team name doesn't exceed the max length and is unique by appending a numeric suffix if needed.
+// normalizeTeamName ensures unique team names within length constraints
 func normalizeTeamName(teamName string, maxLength int, existingTeamNames map[string]struct{}) string {
-	// Truncate the team name if it exceeds the maxLength
 	if len(teamName) > maxLength {
 		teamName = teamName[:maxLength]
 	}
 
-	// Ensure uniqueness by appending a numeric suffix if necessary
-	i := 1
-	uniqueTeamName := teamName
-	for {
-		if _, exists := existingTeamNames[uniqueTeamName]; !exists {
-			break
+	uniqueName := teamName
+	for i := 1; ; i++ {
+		if _, exists := existingTeamNames[uniqueName]; !exists {
+			existingTeamNames[uniqueName] = struct{}{}
+			return uniqueName
 		}
-		// Append suffix if name is not unique
+
 		suffix := fmt.Sprintf("_%d", i)
-		if len(teamName)+len(suffix) > maxLength {
-			uniqueTeamName = teamName[:maxLength-len(suffix)] + suffix
+		if newLen := len(teamName) + len(suffix); newLen <= maxLength {
+			uniqueName = teamName + suffix
 		} else {
-			uniqueTeamName = teamName + suffix
+			uniqueName = teamName[:maxLength-len(suffix)] + suffix
 		}
-		i++
 	}
-
-	// Add the unique team name to the set of existing team names
-	existingTeamNames[uniqueTeamName] = struct{}{}
-
-	return uniqueTeamName
 }

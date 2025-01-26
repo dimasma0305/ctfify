@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"text/template"
 
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
@@ -26,7 +27,15 @@ var (
 		"Forensics", "Hardware", "Mobile", "PPC",
 		"OSINT", "Game Hacking", "AI", "Pentest",
 	}
+	challengeFileRegex = regexp.MustCompile(`challenge\.(yaml|yml)$`)
+	slugRegex          = regexp.MustCompile(`[^a-z0-9_]+`)
 )
+
+// Cache for parsed URL host
+var hostCache struct {
+	host string
+	once sync.Once
+}
 
 func GetConfig(api *gzapi.GZAPI) (*Config, error) {
 	dir, err := os.Getwd()
@@ -39,35 +48,56 @@ func GetConfig(api *gzapi.GZAPI) (*Config, error) {
 		return nil, err
 	}
 
+	// Parallel check for cache and API
+	var wg sync.WaitGroup
 	var configCache Config
-	if err := GetCache("config", &configCache); err == nil {
-		config.Event.Id = configCache.Event.Id
-		config.Event.PublicKey = configCache.Event.PublicKey
-	} else {
-		if api != nil && api.Client != nil {
+	var cacheErr, apiErr error
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		cacheErr = GetCache("config", &configCache)
+	}()
+
+	if api != nil && api.Client != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			game, err := api.GetGameByTitle(config.Event.Title)
 			if err != nil {
-				log.Error("error getting the game title: %s", err)
-				game, err = createNewGame(&config, api)
-				if err != nil {
-					return nil, err
-				}
+				game, apiErr = createNewGame(&config, api)
 			}
-			config.Event.Id = game.Id
-			config.Event.PublicKey = game.PublicKey
-		}
+			if game != nil {
+				config.Event.Id = game.Id
+				config.Event.PublicKey = game.PublicKey
+			}
+		}()
 	}
+
+	wg.Wait()
+
+	if cacheErr == nil {
+		config.Event.Id = configCache.Event.Id
+		config.Event.PublicKey = configCache.Event.PublicKey
+	}
+
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
 	return &config, nil
 }
+
 func generateSlug(challengeConf ChallengeYaml) string {
-	slug := fmt.Sprintf("%s_%s", challengeConf.Category, challengeConf.Name)
-	slug = strings.ToLower(slug)
-	slug = strings.ReplaceAll(slug, " ", "_")
+	var b strings.Builder
+	b.Grow(len(challengeConf.Category) + len(challengeConf.Name) + 1)
 
-	re := regexp.MustCompile(`[^a-z0-9_]+`)
-	slug = re.ReplaceAllString(slug, "")
+	b.WriteString(strings.ToLower(challengeConf.Category))
+	b.WriteByte('_')
+	b.WriteString(strings.ToLower(challengeConf.Name))
 
-	return slug
+	slug := strings.ReplaceAll(b.String(), " ", "_")
+	return slugRegex.ReplaceAllString(slug, "")
 }
 
 func GetChallengesYaml(config *Config) ([]ChallengeYaml, error) {
@@ -76,72 +106,108 @@ func GetChallengesYaml(config *Config) ([]ChallengeYaml, error) {
 		return nil, err
 	}
 
-	var challenges []ChallengeYaml
-	ChallengeFilePattern := regexp.MustCompile(`challenge\.(yaml|yml)$`)
-	for _, category := range CHALLENGE_CATEGORY {
-		categoryPath := filepath.Join(dir, category)
-		log.InfoH2("[%s]", category)
-		if _, err := os.Stat(categoryPath); os.IsNotExist(err) {
-			continue
-		}
-
-		err := filepath.Walk(categoryPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
+	// Pre-parse URL once
+	hostCache.once.Do(func() {
+		if config.Url != "" {
+			if parsedURL, err := url.Parse(config.Url); err == nil {
+				hostCache.host = parsedURL.Hostname()
 			}
-			if ChallengeFilePattern.MatchString(info.Name()) {
-				var challenge ChallengeYaml
-				if err := ParseYamlFromFile(path, &challenge); err != nil {
+		}
+	})
+
+	var wg sync.WaitGroup
+	challengeChan := make(chan ChallengeYaml)
+	errChan := make(chan error, 1)
+	resultChan := make(chan []ChallengeYaml)
+
+	// Start result collector
+	go func() {
+		var challenges []ChallengeYaml
+		for c := range challengeChan {
+			challenges = append(challenges, c)
+		}
+		resultChan <- challenges
+	}()
+
+	// Process categories in parallel
+	for _, category := range CHALLENGE_CATEGORY {
+		wg.Add(1)
+		go func(category string) {
+			defer wg.Done()
+			categoryPath := filepath.Join(dir, category)
+
+			if _, err := os.Stat(categoryPath); os.IsNotExist(err) {
+				return
+			}
+
+			err := filepath.Walk(categoryPath, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() || !challengeFileRegex.MatchString(info.Name()) {
 					return err
 				}
+
+				content, err := os.ReadFile(path)
+				if err != nil {
+					return fmt.Errorf("reading file error: %w", err)
+				}
+
+				var challenge ChallengeYaml
+				if err := ParseYamlFromBytes(content, &challenge); err != nil {
+					return err
+				}
+
 				challenge.Category = category
 				challenge.Cwd = filepath.Dir(path)
-				log.InfoH3("'%s'", challenge.Cwd)
+
 				if category == "Game Hacking" {
 					challenge.Category = "Reverse"
 					challenge.Name = "[Game Hacking] " + challenge.Name
 				}
-				yamlRaw, err := os.ReadFile(path)
+
+				t, err := template.New("chall").Parse(string(content))
 				if err != nil {
-					return fmt.Errorf("reading file challenge error: %s", err)
-				}
-				t, err := template.New("chall").Parse(string(yamlRaw))
-				if err != nil {
-					log.ErrorH2("error parsing template: %v", err)
+					log.ErrorH2("template error: %v", err)
 					return nil
 				}
 
-				var parsedURL *url.URL
-				if config.Url != "" {
-					parsedURL, err = url.Parse(config.Url)
-					if err != nil {
-						log.Fatal(err)
-					}
-				}
-
 				var buf bytes.Buffer
-				host := ""
-				if parsedURL != nil {
-					host = parsedURL.Host
-				}
 				err = t.Execute(&buf, map[string]string{
-					"host": host,
+					"host": hostCache.host,
 					"slug": generateSlug(challenge),
 				})
 				if err != nil {
-					return fmt.Errorf("error executing template: %v", err)
+					return fmt.Errorf("template execution error: %w", err)
 				}
 
 				if err := ParseYamlFromBytes(buf.Bytes(), &challenge); err != nil {
-					return fmt.Errorf("error parsing template")
+					return fmt.Errorf("yaml parse error: %w", err)
 				}
-				challenges = append(challenges, challenge)
+
+				select {
+				case challengeChan <- challenge:
+				case <-errChan:
+				}
+				return nil
+			})
+
+			if err != nil {
+				select {
+				case errChan <- fmt.Errorf("category %s: %w", category, err):
+				default:
+				}
 			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
+		}(category)
 	}
-	return challenges, nil
+
+	go func() {
+		wg.Wait()
+		close(challengeChan)
+	}()
+
+	select {
+	case err := <-errChan:
+		close(errChan)
+		return nil, err
+	case challenges := <-resultChan:
+		return challenges, nil
+	}
 }
