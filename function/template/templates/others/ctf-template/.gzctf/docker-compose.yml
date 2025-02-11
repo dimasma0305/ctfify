@@ -33,3 +33,17 @@ services:
     image: redis:alpine
     restart: always
 
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    depends_on:
+      - gzctf
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/sites-available/default
+      - ./letsencrypt:/etc/letsencrypt
+    ports:
+      - "443:443"
+      - "80:80"
+
+

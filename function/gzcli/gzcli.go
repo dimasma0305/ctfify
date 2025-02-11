@@ -142,38 +142,6 @@ func Init() (*GZ, error) {
 	return initGZ, initErr
 }
 
-// Batch folder creation with parallel execution
-func (gz *GZ) InitFolder() error {
-	dir := getWorkDir()
-	errChan := make(chan error, len(CHALLENGE_CATEGORY))
-	var wg sync.WaitGroup
-
-	for _, category := range CHALLENGE_CATEGORY {
-		wg.Add(1)
-		go func(cat string) {
-			defer wg.Done()
-			path := filepath.Join(dir, cat)
-			if err := os.MkdirAll(path, 0755); err != nil {
-				errChan <- err
-				return
-			}
-			if _, err := os.Create(filepath.Join(path, ".gitkeep")); err != nil {
-				errChan <- err
-			}
-		}(category)
-	}
-
-	wg.Wait()
-	close(errChan)
-
-	for err := range errChan {
-		if err != nil {
-			return fmt.Errorf("folder creation error: %w", err)
-		}
-	}
-	return copyAllEmbedFileIntoFolder("embeds/config", filepath.Join(dir, gzctfDir))
-}
-
 // Bulk game deletion with parallel execution
 func (gz *GZ) RemoveAllEvent() error {
 	games, err := gz.api.GetGames()

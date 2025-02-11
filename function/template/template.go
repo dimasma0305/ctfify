@@ -1,7 +1,6 @@
 package template
 
 import (
-	"bytes"
 	"embed"
 	"fmt"
 	"io"
@@ -22,80 +21,102 @@ var (
 // TemplateToDestination reads a template from the embedded file system and writes it to the destination.
 // If it's a folder, it recursively writes its contents to the destination. If it's a file, it writes that file to the destination.
 func TemplateToDestination(file string, info interface{}, destination string) {
-	// Check if the template is a directory
-	dirEntries, err := File.ReadDir(file)
-	if err == nil { // It's a directory
-		err = processDirectory(file, dirEntries, info, destination)
-		if err != nil {
+	if isDir(file) {
+		processDir(file, info, destination)
+	} else {
+		if err := processFile(file, info, destination); err != nil {
 			log.ErrorH2("%s", err)
 		}
+	}
+}
+
+// New function to check if the path is a directory
+func isDir(path string) bool {
+	dirEntries, err := File.ReadDir(filepath.Dir(path))
+	if err != nil {
+		return false
+	}
+	for _, de := range dirEntries {
+		if de.Name() == filepath.Base(path) && de.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+// New function to process directories
+func processDir(dir string, info interface{}, destination string) {
+	if err := os.MkdirAll(destination, 0755); err != nil {
+		log.ErrorH2("Failed to create directory %q: %v", destination, err)
 		return
 	}
-	// It's a file, process the template
-	err = processFile(file, info, destination)
-	if err != nil {
-		log.ErrorH2("%s", err)
-	}
-}
 
-func processDirectory(directory string, dirEntries []os.DirEntry, info interface{}, destination string) error {
-	// Create the destination directory
-	err := os.MkdirAll(destination, os.ModePerm)
+	entries, err := File.ReadDir(dir)
 	if err != nil {
-		return fmt.Errorf("can't make directory: %s", err)
+		log.ErrorH2("Failed to read directory %q: %v", dir, err)
+		return
 	}
 
-	// Recursively process each file in the directory
-	for _, entry := range dirEntries {
-		entryPath := filepath.Join(directory, entry.Name())
+	for _, entry := range entries {
+		srcPath := filepath.Join(dir, entry.Name())
 		destPath := filepath.Join(destination, entry.Name())
-		TemplateToDestination(entryPath, info, destPath)
+		TemplateToDestination(srcPath, info, destPath)
 	}
-	return nil
 }
 
+// Updated processFile function
 func processFile(file string, info interface{}, destination string) error {
 	file = utils.NormalizePath(file)
 	destination = strings.ReplaceAll(destination, "{{replaceit}}", "")
-	// Check if the destination file already exists
-	if _, err := os.Stat(destination); err == nil {
-		// File exists, return an error or handle it as needed
-		return fmt.Errorf("destination file already exists: %s", destination)
+
+	content, err := processTemplate(file, info)
+	if err != nil {
+		log.Error("Falling back to raw file copy for %q: %v", file, err)
+		rawFile, openErr := File.Open(file)
+		if openErr != nil {
+			return fmt.Errorf("failed to open raw file: %w (template error: %v)", openErr, err)
+		}
+		defer rawFile.Close()
+		content = rawFile
 	}
 
-	var outputBuffer bytes.Buffer
+	if err := writeContent(destination, content); err != nil {
+		return fmt.Errorf("failed to write to %q: %w", destination, err)
+	}
 
-	// Parse the template
+	log.Info("File processed successfully: %s", destination)
+	return nil
+}
+
+// New function to process templates
+func processTemplate(file string, info interface{}) (io.Reader, error) {
 	tmpl, err := template.ParseFS(File, file)
 	if err != nil {
-		log.Error("error parsing the template: %s", err.Error())
-		log.Error("try to copy raw file")
-		buffer, err := File.ReadFile(file)
-		if err != nil {
-			return err
-		}
-		if _, err = outputBuffer.Write(buffer); err != nil {
-			return err
-		}
-
-	} else {
-		// Execute the template with the provided info
-		if err := tmpl.Execute(&outputBuffer, info); err != nil {
-			return fmt.Errorf("error execute the template: %s", err.Error())
-		}
+		return nil, fmt.Errorf("template parse error: %w", err)
 	}
 
-	// Write the result to the destination
-	destFile, err := os.Create(destination)
+	var buf strings.Builder
+	if err := tmpl.Execute(&buf, info); err != nil {
+		return nil, fmt.Errorf("template execute error: %w", err)
+	}
+
+	return strings.NewReader(buf.String()), nil
+}
+
+// New function to write content atomically
+func writeContent(destination string, content io.Reader) error {
+	destFile, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
-		return fmt.Errorf("error creating the destination: %s", err.Error())
+		if os.IsExist(err) {
+			return fmt.Errorf("file already exists")
+		}
+		return fmt.Errorf("failed to create file: %w", err)
 	}
 	defer destFile.Close()
 
-	if _, err := io.Copy(destFile, &outputBuffer); err != nil {
-		return fmt.Errorf("error copying the output: %s", err.Error())
+	if _, err := io.Copy(destFile, content); err != nil {
+		return fmt.Errorf("write error: %w", err)
 	}
 
-	log.Info("Template written to destination: %s", destFile.Name())
 	return nil
 }
