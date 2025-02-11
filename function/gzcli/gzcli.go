@@ -81,7 +81,7 @@ func getWorkDir() string {
 
 // Optimized database query execution with prepared command
 var dbQueryCmd = exec.Command(
-	"sudo", "docker", "compose", "exec", "-T", "db", "psql",
+	"docker", "compose", "exec", "-T", "db", "psql",
 	"--user", "postgres", "-d", "gzctf", "-c",
 )
 
