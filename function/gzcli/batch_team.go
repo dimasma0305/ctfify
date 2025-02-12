@@ -2,13 +2,11 @@ package gzcli
 
 import (
 	"encoding/csv"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"gopkg.in/gomail.v2"
@@ -165,31 +163,6 @@ func getData(source string) ([]byte, error) {
 	return output, nil
 }
 
-func getAppSettings() (map[string]interface{}, error) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	filePath := "appsettings.json"
-	file, err := os.Open(filepath.Join(dir, GZCTF_DIR, filePath))
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %v", err)
-	}
-	defer file.Close()
-
-	bytes, err := io.ReadAll(file)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %v", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(bytes, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON: %v", err)
-	}
-
-	return result, nil
-}
-
 // sendEmail sends the team credentials to the specified email address using gomail
 func sendEmail(realName string, website string, creds *TeamCreds) error {
 	appsettings, err := getAppSettings()
@@ -197,34 +170,13 @@ func sendEmail(realName string, website string, creds *TeamCreds) error {
 		return err
 	}
 
-	// Type assertion to check if EmailConfig exists and is of type map[string]interface{}
-	emailConfig, ok := appsettings["EmailConfig"].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("failed to assert type map[string]interface{} for EmailConfig")
-	}
-
-	smtp, ok := emailConfig["Smtp"].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("smtp is missing or not a dict")
-	}
+	smtp := appsettings.EmailConfig.Smtp
 
 	// Extract the necessary fields from the emailConfig map
-	smtpHost, ok := smtp["Host"].(string)
-	if !ok {
-		return fmt.Errorf("host is missing or not a string")
-	}
-	smtpPort, ok := smtp["Port"].(float64)
-	if !ok {
-		return fmt.Errorf("port is missing or not a number")
-	}
-	smtpUsername, ok := emailConfig["UserName"].(string)
-	if !ok {
-		return fmt.Errorf("smtpUsername is missing or not a string")
-	}
-	smtpPassword, ok := emailConfig["Password"].(string)
-	if !ok {
-		return fmt.Errorf("smtpPassword is missing or not a string")
-	}
+	smtpHost := smtp.Host
+	smtpPort := smtp.Port
+	smtpUsername := appsettings.EmailConfig.UserName
+	smtpPassword := appsettings.EmailConfig.Password
 
 	m := gomail.NewMessage()
 	m.SetHeader("From", smtpUsername)

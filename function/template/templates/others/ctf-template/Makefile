@@ -20,6 +20,9 @@ register-all-user:
 send-email:
 	${SUDO} ${BIN} gzcli --create-teams-and-send-email ${CSV}
 
+flush-cache:
+	(cd .gzctf && ${SUDO} docker compose exec -uroot cache redis-cli FLUSHALL)
+
 install-ssl:
 	(cd .gzctf && ${SUDO} docker compose exec -uroot nginx certbot --nginx -d playground.tcp1p.team)
 

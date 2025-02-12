@@ -2,8 +2,8 @@ package gzcli
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	GZCTF_DIR   = ".gzctf"
-	CONFIG_FILE = "conf.yaml"
+	GZCTF_DIR        = ".gzctf"
+	CONFIG_FILE      = "conf.yaml"
+	APPSETTINGS_FILE = "appsettings.json"
 )
 
 var (
@@ -84,8 +85,30 @@ func GetConfig(api *gzapi.GZAPI) (*Config, error) {
 	if apiErr != nil {
 		return nil, apiErr
 	}
-
+	config.appsettings, err = getAppSettings()
+	if err != nil {
+		return nil, fmt.Errorf("errror parsing appsettings.json: %s", err)
+	}
 	return &config, nil
+}
+
+func getAppSettings() (*AppSettings, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	appSettingsPath := filepath.Join(dir, GZCTF_DIR, APPSETTINGS_FILE)
+	content, err := os.ReadFile(appSettingsPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading appsettings file error: %w", err)
+	}
+
+	var settings AppSettings
+	if err := json.Unmarshal(content, &settings); err != nil {
+		return nil, fmt.Errorf("unmarshalling appsettings error: %w", err)
+	}
+
+	return &settings, nil
 }
 
 func generateSlug(challengeConf ChallengeYaml) string {
@@ -108,11 +131,7 @@ func GetChallengesYaml(config *Config) ([]ChallengeYaml, error) {
 
 	// Pre-parse URL once
 	hostCache.once.Do(func() {
-		if config.Url != "" {
-			if parsedURL, err := url.Parse(config.Url); err == nil {
-				hostCache.host = parsedURL.Hostname()
-			}
-		}
+		hostCache.host = config.appsettings.ContainerProvider.PublicEntry
 	})
 
 	var wg sync.WaitGroup

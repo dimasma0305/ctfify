@@ -13,9 +13,10 @@ import (
 )
 
 type Config struct {
-	Url   string      `yaml:"url"`
-	Creds gzapi.Creds `yaml:"creds"`
-	Event gzapi.Game  `yaml:"event"`
+	Url         string      `yaml:"url"`
+	Creds       gzapi.Creds `yaml:"creds"`
+	Event       gzapi.Game  `yaml:"event"`
+	appsettings *AppSettings
 }
 
 type Container struct {
