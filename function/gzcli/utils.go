@@ -316,12 +316,11 @@ func genStructure(challenges []ChallengeYaml) error {
 	// Iterate over each challenge in the challenges slice
 	for _, challenge := range challenges {
 		// Construct the challenge path using the challenge data
-		challengePath := filepath.Join(challenge.Category, challenge.Name)
-		if err := template.TemplateToDestination(".structure", challenge, challengePath); err != nil {
-			log.Error("Failed to copy .structure to %s: %v", challengePath, err)
+		if err := template.TemplateToDestination(".structure", challenge, challenge.Cwd); err != nil {
+			log.Error("Failed to copy .structure to %s: %v", challenge.Cwd, err)
 			continue
 		}
-		log.Info("Successfully copied .structure to %s", challengePath)
+		log.Info("Successfully copied .structure to %s", challenge.Cwd)
 	}
 
 	return nil
