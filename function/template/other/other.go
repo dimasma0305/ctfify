@@ -8,20 +8,20 @@ import (
 	"github.com/dimasma0305/ctfify/function/template"
 )
 
-func ReadFlag(destination string) {
-	template.TemplateToDestination("templates/others/readflag", "", destination)
+func ReadFlag(destination string) error {
+	return template.TemplateFSToDestination("templates/others/readflag", "", destination)
 }
 
-func Writeup(destination string, info any) {
-	template.TemplateToDestination("templates/others/writeup", info, destination)
+func Writeup(destination string, info any) error {
+	return template.TemplateFSToDestination("templates/others/writeup", info, destination)
 }
 
-func POC(destination string, info any) {
-	template.TemplateToDestination("templates/others/poc", info, destination)
+func POC(destination string, info any) error {
+	return template.TemplateFSToDestination("templates/others/poc", info, destination)
 }
 
-func JavaExploitationPlus(destination string, info any) {
-	template.TemplateToDestination("templates/others/java-exploit-plus", info, destination)
+func JavaExploitationPlus(destination string, info any) error {
+	return template.TemplateFSToDestination("templates/others/java-exploit-plus", info, destination)
 }
 
 type CTFInfo struct {
@@ -49,7 +49,7 @@ func getUserInput(str string) string {
 	return input
 }
 
-func CTFTemplate(destination string, info any) {
+func CTFTemplate(destination string, info any) error {
 	url := getUserInput("URL: ")
 	publicEntry := getUserInput("Public Entry: ")
 	discordWebhook := getUserInput("Discord Webhook: ")
@@ -61,5 +61,5 @@ func CTFTemplate(destination string, info any) {
 		PublicEntry:    publicEntry,
 		DiscordWebhook: discordWebhook,
 	}
-	template.TemplateToDestination("templates/others/ctf-template", ctfInfo, destination)
+	return template.TemplateFSToDestination("templates/others/ctf-template", ctfInfo, destination)
 }

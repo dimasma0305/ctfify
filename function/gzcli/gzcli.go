@@ -142,6 +142,20 @@ func Init() (*GZ, error) {
 	return initGZ, initErr
 }
 
+func (gz *GZ) GenerateStructure() error {
+	challenges, err := GetChallengesYaml(&Config{})
+	if err != nil {
+		return err
+	}
+
+	// Call genStructure with the provided challenges
+	if err := genStructure(challenges); err != nil {
+		log.Error("Failed to generate structure: %v", err)
+		return err
+	}
+	return nil
+}
+
 // Bulk game deletion with parallel execution
 func (gz *GZ) RemoveAllEvent() error {
 	games, err := gz.api.GetGames()

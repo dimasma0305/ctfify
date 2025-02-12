@@ -95,45 +95,53 @@ var addCmd = &cobra.Command{
 it can be a --template like pwn template of writeup template
 that i specialy crafted`,
 	Run: func(cmd *cobra.Command, args []string) {
+		var errors []error // Slice to collect errors
+
 		if addFlag.TemplateSolver != "" {
 			switch addFlag.TemplateSolver {
 			case solverTemplateList["writeup"].name:
-				other.Writeup(addFlag.Destination, addFlag)
+				errors = append(errors, other.Writeup(addFlag.Destination, addFlag))
 			case solverTemplateList["pwn"].name:
-				solver.PWN(addFlag.Destination)
+				errors = append(errors, solver.PWN(addFlag.Destination))
 			case solverTemplateList["web"].name:
-				solver.Web(addFlag.Destination)
+				errors = append(errors, solver.Web(addFlag.Destination))
 			case solverTemplateList["webPwn"].name:
-				solver.WebPWN(addFlag.Destination)
+				errors = append(errors, solver.WebPWN(addFlag.Destination))
 			case solverTemplateList["web3"].name:
-				solver.Web3(addFlag.Destination)
+				errors = append(errors, solver.Web3(addFlag.Destination))
 			case solverTemplateList["webServer"].name:
-				solver.WebServer(addFlag.Destination)
+				errors = append(errors, solver.WebServer(addFlag.Destination))
 			}
 		} else if addFlag.TemplateChallenge != "" {
 			switch addFlag.TemplateChallenge {
 			case challengeTemplateList["web3"].name:
-				challenge.Web3(addFlag.Destination)
+				errors = append(errors, challenge.Web3(addFlag.Destination))
 			case challengeTemplateList["xss"].name:
-				challenge.XSS(addFlag.Destination)
+				errors = append(errors, challenge.XSS(addFlag.Destination))
 			case challengeTemplateList["php-fpm"].name:
-				challenge.PHPFPM(addFlag.Destination)
+				errors = append(errors, challenge.PHPFPM(addFlag.Destination))
 			}
 		} else if addFlag.TemplateOther != "" {
 			switch addFlag.TemplateOther {
 			case otherTemplateList["readflag"].name:
-				other.ReadFlag(addFlag.Destination)
+				errors = append(errors, other.ReadFlag(addFlag.Destination))
 			case otherTemplateList["writeup"].name:
-				other.Writeup(addFlag.Destination, addFlag)
+				errors = append(errors, other.Writeup(addFlag.Destination, addFlag))
 			case otherTemplateList["poc"].name:
-				other.POC(addFlag.Destination, addFlag)
+				errors = append(errors, other.POC(addFlag.Destination, addFlag))
 			case otherTemplateList["java-exploitation-plus"].name:
-				other.JavaExploitationPlus(addFlag.Destination, addFlag)
+				errors = append(errors, other.JavaExploitationPlus(addFlag.Destination, addFlag))
 			case otherTemplateList["ctfTemplate"].name:
-				other.CTFTemplate(addFlag.Destination, addFlag)
+				errors = append(errors, other.CTFTemplate(addFlag.Destination, addFlag))
 			}
 		}
 
+		// Log all collected errors
+		for _, err := range errors {
+			if err != nil {
+				log.Error("%s", err)
+			}
+		}
 	},
 }
 

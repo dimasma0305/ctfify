@@ -20,6 +20,7 @@ type tcommandFlags struct {
 	createTeamsEmail string
 	deleteUsersFlag  bool
 	updateGameFlag   bool
+	genStructureFlag bool
 }
 
 var commandFlags tcommandFlags
@@ -55,6 +56,11 @@ var gzcliCmd = &cobra.Command{
 		case commandFlags.deleteUsersFlag:
 			gzcli.MustInit().MustDeleteAllUser()
 
+		case commandFlags.genStructureFlag:
+			if err := gzcli.MustInit().GenerateStructure(); err != nil {
+				log.Fatal("generate structure error: ", err)
+			}
+
 		default:
 			cmd.Help()
 		}
@@ -66,6 +72,7 @@ func init() {
 	flags := gzcliCmd.Flags()
 
 	flags.BoolVar(&commandFlags.initFlag, "init", false, "Initialize new CTF structure")
+	flags.BoolVar(&commandFlags.genStructureFlag, "gen-structure", false, "generate structure for each challenge folder based on .structure")
 	flags.BoolVar(&commandFlags.syncFlag, "sync", false, "Synchronize CTF data")
 	flags.BoolVar(&commandFlags.ctftimeFlag, "ctftime-scoreboard", false, "Generate CTFTime scoreboard feed")
 	flags.StringVar(&commandFlags.scriptFlag, "run-script", "", "Execute custom script")

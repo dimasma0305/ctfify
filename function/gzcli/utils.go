@@ -18,6 +18,7 @@ import (
 
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
 	"github.com/dimasma0305/ctfify/function/log"
+	"github.com/dimasma0305/ctfify/function/template"
 	"github.com/google/go-cmp/cmp"
 	"gopkg.in/yaml.v2"
 )
@@ -303,4 +304,29 @@ func mergeChallengeData(challengeConf *ChallengeYaml, challengeData *gzapi.Chall
 	}
 
 	return challengeData
+}
+
+func genStructure(challenges []ChallengeYaml) error {
+	// Read the .structure file
+	_, err := os.ReadDir(".structure")
+	if err != nil {
+		return fmt.Errorf(".structure dir doesn't exist: %w", err)
+	}
+
+	// Iterate over each challenge in the challenges slice
+	for _, challenge := range challenges {
+		// Construct the challenge path using the challenge data
+		challengePath := filepath.Join(challenge.Category, challenge.Name)
+		if err := GetCache(challengePath, challenge); err != nil {
+			log.Error("Failed to get cache for %s: %v", challengePath, err)
+			continue
+		}
+		if err := template.TemplateToDestination(".structure", challenge, challengePath); err != nil {
+			log.Error("Failed to copy .structure to %s: %v", challengePath, err)
+			continue
+		}
+		log.Info("Successfully copied .structure to %s", challengePath)
+	}
+
+	return nil
 }
