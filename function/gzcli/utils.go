@@ -317,10 +317,6 @@ func genStructure(challenges []ChallengeYaml) error {
 	for _, challenge := range challenges {
 		// Construct the challenge path using the challenge data
 		challengePath := filepath.Join(challenge.Category, challenge.Name)
-		if err := GetCache(challengePath, challenge); err != nil {
-			log.Error("Failed to get cache for %s: %v", challengePath, err)
-			continue
-		}
 		if err := template.TemplateToDestination(".structure", challenge, challengePath); err != nil {
 			log.Error("Failed to copy .structure to %s: %v", challengePath, err)
 			continue
