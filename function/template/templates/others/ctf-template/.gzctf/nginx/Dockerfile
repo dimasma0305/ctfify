@@ -9,6 +9,7 @@ RUN apt update -y \
     && apt-get install python-certbot-nginx -y \
     && apt-get clean
 
+COPY initial.conf /etc/nginx/sites-enabled/default
 
 # Expose standard HTTP/HTTPS ports
 EXPOSE 80/tcp

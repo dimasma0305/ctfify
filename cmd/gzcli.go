@@ -33,7 +33,13 @@ var gzcliCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		switch {
 		case commandFlags.initFlag:
-			other.CTFTemplate(".", map[string]string{})
+			if errors := other.CTFTemplate(".", map[string]string{}); errors != nil {
+				for _, err := range errors {
+					if err != nil {
+						log.Error("%s", err)
+					}
+				}
+			}
 			return
 
 		case commandFlags.syncFlag:

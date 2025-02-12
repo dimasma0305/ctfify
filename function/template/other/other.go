@@ -8,19 +8,19 @@ import (
 	"github.com/dimasma0305/ctfify/function/template"
 )
 
-func ReadFlag(destination string) error {
+func ReadFlag(destination string) []error {
 	return template.TemplateFSToDestination("templates/others/readflag", "", destination)
 }
 
-func Writeup(destination string, info any) error {
+func Writeup(destination string, info any) []error {
 	return template.TemplateFSToDestination("templates/others/writeup", info, destination)
 }
 
-func POC(destination string, info any) error {
+func POC(destination string, info any) []error {
 	return template.TemplateFSToDestination("templates/others/poc", info, destination)
 }
 
-func JavaExploitationPlus(destination string, info any) error {
+func JavaExploitationPlus(destination string, info any) []error {
 	return template.TemplateFSToDestination("templates/others/java-exploit-plus", info, destination)
 }
 
@@ -49,7 +49,7 @@ func getUserInput(str string) string {
 	return input
 }
 
-func CTFTemplate(destination string, info any) error {
+func CTFTemplate(destination string, info any) []error {
 	url := getUserInput("URL: ")
 	publicEntry := getUserInput("Public Entry: ")
 	discordWebhook := getUserInput("Discord Webhook: ")

@@ -95,7 +95,7 @@ var addCmd = &cobra.Command{
 it can be a --template like pwn template of writeup template
 that i specialy crafted`,
 	Run: func(cmd *cobra.Command, args []string) {
-		var errors []error // Slice to collect errors
+		var errors [][]error // Slice to collect errors
 
 		if addFlag.TemplateSolver != "" {
 			switch addFlag.TemplateSolver {
@@ -137,9 +137,11 @@ that i specialy crafted`,
 		}
 
 		// Log all collected errors
-		for _, err := range errors {
-			if err != nil {
-				log.Error("%s", err)
+		for _, errs := range errors {
+			for _, err := range errs {
+				if err != nil {
+					log.Error("%s", err)
+				}
 			}
 		}
 	},

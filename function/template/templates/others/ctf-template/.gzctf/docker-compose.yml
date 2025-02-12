@@ -6,9 +6,9 @@ services:
     environment:
       - "LC_ALL=en_US.UTF-8"
     ports:
-      - "127.0.0.1:8080:8080"
+      - "8080:8080"
     volumes:
-      - "./data/files:/app/files"
+      - "gzctf-files:/app/files"
       - "./appsettings.json:/app/appsettings.json:ro"
       - "/var/run/docker.sock:/var/run/docker.sock"
     depends_on:
@@ -26,8 +26,7 @@ services:
     environment:
       - "POSTGRES_PASSWORD=postgres"
     volumes:
-      - "./data/db:/var/lib/postgresql/data"
-    # command: sleep infinity
+      - "postgres-data:/var/lib/postgresql/data"
 
   cache:
     image: redis:alpine
@@ -40,10 +39,12 @@ services:
     depends_on:
       - gzctf
     volumes:
-      - ./nginx/default.conf:/etc/nginx/sites-available/default
+      - ./nginx/ssl.conf:/etc/nginx/sites-available/{{.PublicEntry}}
       - ./letsencrypt:/etc/letsencrypt
     ports:
       - "443:443"
       - "80:80"
 
-
+volumes:
+  gzctf-files:
+  postgres-data:

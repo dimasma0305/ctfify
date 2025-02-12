@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/dimasma0305/ctfify/refs/heads/master/function/template/templates/others/ctf-template/.gzctf/challenge.schema.yaml
+
+name: "static-attachment"
+author: "dimas"
+description: |
+  Example static attachment
+
+  Connect: nc {{ .host }} 8011
+
+type: "StaticAttachment"
+value: 1000
+
+flags:
+  - "flag{testing}"
+
+
+provide: "./dist"
+
+scripts:
+    start: cd src && docker compose -p {{.slug}} up --build -d
+    stop: cd src && docker compose -p {{.slug}} down --volumes

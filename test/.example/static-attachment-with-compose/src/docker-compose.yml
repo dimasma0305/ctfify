@@ -1,0 +1,6 @@
+services:
+  example:
+    build: .
+    restart: on-failure
+    ports:
+      - 8011:8011
