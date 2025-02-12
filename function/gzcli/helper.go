@@ -139,6 +139,8 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 
 		// fix bug nill pointer because cache didn't return gzapi
 		challengeData.CS = api
+		// fix bug isEnable always be false after sync
+		challengeData.IsEnabled = nil
 	}
 	err = handleChallengeAttachments(challengeConf, challengeData, api)
 	if err != nil {
@@ -151,13 +153,6 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 	}
 
 	challengeData = mergeChallengeData(&challengeConf, challengeData)
-	// fix bug isEnable always be false after sync
-	for _, chall := range challenges {
-		if chall.Id == challengeData.Id {
-			challengeData.IsEnabled = chall.IsEnabled
-			break
-		}
-	}
 	if isConfigEdited(&challengeConf, challengeData) {
 		if challengeData, err = challengeData.Update(*challengeData); err != nil {
 			log.ErrorH2("Update failed %s", err.Error())
