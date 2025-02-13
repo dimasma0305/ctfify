@@ -7,6 +7,8 @@ services:
       - "LC_ALL=en_US.UTF-8"
     ports:
       - "8080:8080"
+    privileged: true
+    userns_mode: host
     volumes:
       - "gzctf-files:/app/files"
       - "./appsettings.json:/app/appsettings.json:ro"

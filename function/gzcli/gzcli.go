@@ -144,7 +144,11 @@ func Init() (*GZ, error) {
 }
 
 func (gz *GZ) GenerateStructure() error {
-	challenges, err := GetChallengesYaml(&Config{})
+	appsetings, err := getAppSettings()
+	if err != nil {
+		return err
+	}
+	challenges, err := GetChallengesYaml(&Config{appsettings: appsetings})
 	if err != nil {
 		return err
 	}
@@ -223,7 +227,11 @@ func (gz *GZ) Scoreboard2CTFTimeFeed() (*CTFTimeFeed, error) {
 
 // Optimized script runner with worker pool
 func RunScripts(script string) error {
-	challengesConf, err := GetChallengesYaml(&Config{})
+	appsetings, err := getAppSettings()
+	if err != nil {
+		return err
+	}
+	challengesConf, err := GetChallengesYaml(&Config{appsettings: appsetings})
 	if err != nil {
 		return err
 	}
