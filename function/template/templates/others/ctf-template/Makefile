@@ -24,10 +24,10 @@ flush-cache:
 	(cd .gzctf && ${SUDO} docker compose exec -uroot cache redis-cli FLUSHALL)
 
 install-ssl:
-	(cd .gzctf && ${SUDO} docker compose exec -uroot nginx certbot --nginx -d playground.tcp1p.team)
+	(cd .gzctf && ${SUDO} docker compose exec -uroot nginx certbot certonly --webroot -d playground.tcp1p.team -m dimasmaulana0305@gmail.com --agree-tos --non-interactive --webroot-path /var/www/html/)
 
 link-ssl-config:
-	(cd .gzctf && ${SUDO} docker compose exec -uroot nginx bash -c "rm /etc/nginx/sites-enabled/* && ln -s /etc/nginx/sites-available/playground.tpcp1.team /etc/nginx/sites-enabled/playground.tpcp1.team")
+	(cd .gzctf && ${SUDO} docker compose exec -uroot nginx bash -c "rm /etc/nginx/sites-enabled/* && ln -s /etc/nginx/sites-available/playground.tcp1p.team /etc/nginx/sites-enabled/playground.tcp1p.team")
 
 reload-nginx:
 	(cd .gzctf && ${SUDO} docker compose exec -uroot nginx nginx -s reload)
