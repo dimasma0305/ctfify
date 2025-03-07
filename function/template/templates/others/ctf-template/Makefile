@@ -24,16 +24,16 @@ flush-cache:
 	(cd .gzctf && ${SUDO} docker compose exec -uroot cache redis-cli FLUSHALL)
 
 install-ssl:
-	(cd .gzctf && ${SUDO} docker compose exec -uroot nginx certbot certonly --webroot -d playground.tcp1p.team -m dimasmaulana0305@gmail.com --agree-tos --non-interactive --webroot-path /var/www/html/)
+	(cd .gzctf && ${SUDO} docker compose exec -uroot nginx certbot certonly --webroot -d {{.PublicEntry}} -m dimasmaulana0305@gmail.com --agree-tos --non-interactive --webroot-path /var/www/html/)
 
 link-ssl-config:
-	(cd .gzctf && ${SUDO} docker compose exec -uroot nginx bash -c "rm /etc/nginx/sites-enabled/* && ln -s /etc/nginx/sites-available/playground.tcp1p.team /etc/nginx/sites-enabled/playground.tcp1p.team")
+	(cd .gzctf && ${SUDO} docker compose exec -uroot nginx bash -c "rm /etc/nginx/sites-enabled/* && ln -s /etc/nginx/sites-available/{{.PublicEntry}} /etc/nginx/sites-enabled/{{.PublicEntry}}")
 
 reload-nginx:
 	(cd .gzctf && ${SUDO} docker compose exec -uroot nginx nginx -s reload)
 
 local-cert:
-	(cd .gzctf && ${SUDO} docker compose exec -uroot nginx bash -c "mkdir -p /etc/letsencrypt/live/playground.tcp1p.team/ && openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/letsencrypt/live/playground.tcp1p.team/privkey.pem -out /etc/letsencrypt/live/playground.tcp1p.team/fullchain.pem -subj "/C=US/ST=State/L=City/O=Organization/OU=Unit/CN=playground.tcp1p.team"")
+	(cd .gzctf && ${SUDO} docker compose exec -uroot nginx bash -c "mkdir -p /etc/letsencrypt/live/{{.PublicEntry}}/ && openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/letsencrypt/live/{{.PublicEntry}}/privkey.pem -out /etc/letsencrypt/live/{{.PublicEntry}}/fullchain.pem -subj "/C=US/ST=State/L=City/O=Organization/OU=Unit/CN={{.PublicEntry}}"")
 
 setup-ssl: install-ssl link-ssl-config reload-nginx
 setup-local-ssl: local-cert link-ssl-config reload-nginx
