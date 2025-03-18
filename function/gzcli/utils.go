@@ -196,6 +196,9 @@ func zipSource(source, target string) error {
 	sem := make(chan struct{}, runtime.NumCPU())
 	var wg sync.WaitGroup
 
+	// Use a fixed timestamp for reproducible builds
+	fixedTime := time.Date(2025, 3, 18, 0, 0, 0, 0, time.UTC)
+
 	for _, path := range filePaths {
 		wg.Add(1)
 		go func(p string) {
@@ -233,7 +236,7 @@ func zipSource(source, target string) error {
 				header := &zip.FileHeader{
 					Name:     dirPath + "/",
 					Method:   zip.Deflate,
-					Modified: time.Now(),
+					Modified: fixedTime,
 				}
 				if _, err := writer.CreateHeader(header); err != nil {
 					return err
@@ -246,7 +249,7 @@ func zipSource(source, target string) error {
 		header := &zip.FileHeader{
 			Name:     relPath,
 			Method:   zip.Deflate,
-			Modified: time.Now(),
+			Modified: fixedTime,
 		}
 		header.SetMode(0644)
 
