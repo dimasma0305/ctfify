@@ -222,7 +222,7 @@ func handleLocalAttachment(challengeConf ChallengeYaml, challengeData *gzapi.Cha
 	if challengeData.Attachment != nil && strings.Contains(challengeData.Attachment.Url, fileinfo.Hash) {
 		log.Info("Attachment for %s is the same...", challengeConf.Name)
 	} else {
-		log.Info("Update attachment for %s", challengeConf.Name)
+		log.Info("Update attachment for %s %s %s", challengeConf.Name, fileinfo.Hash, challengeData.Attachment.Url)
 		if err := challengeData.CreateAttachment(gzapi.CreateAttachmentForm{
 			AttachmentType: "Local",
 			FileHash:       fileinfo.Hash,

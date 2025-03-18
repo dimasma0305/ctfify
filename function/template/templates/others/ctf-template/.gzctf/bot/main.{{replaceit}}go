@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -121,7 +122,16 @@ func main() {
 
 		if len(newNotices) > 0 {
 			lastNoticeID = newNotices[len(newNotices)-1].Id
+			replacements := map[string]string{
+				"@everyone": "@everyon3",
+				"@here":     "@her3",
+			}
 			for _, notice := range newNotices {
+				for i, value := range notice.Values {
+					for old, new := range replacements {
+						notice.Values[i] = strings.Replace(value, old, new, -1)
+					}
+				}
 				var embed discord.Embed
 				switch notice.NoticeType {
 				case 1: // First Blood
