@@ -1,6 +1,7 @@
 package ctfd
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/url"
 	"strings"
@@ -44,7 +45,8 @@ func New(url string, creds *Creds) *ctfdScraper {
 
 	scraper = &ctfdScraper{
 		client: req.C().
-			SetUserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0"),
+			SetUserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0").
+			SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}),
 		Url:           url,
 		challengesUrl: challengeUrl,
 		hintsUrl:      hintsUrl,
