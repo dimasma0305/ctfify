@@ -59,6 +59,7 @@ type CTFTimeFeed struct {
 type GZ struct {
 	api        *gzapi.GZAPI
 	UpdateGame bool
+	watcher    *Watcher
 }
 
 // Cache frequently used paths and configurations
@@ -283,56 +284,86 @@ func RunScripts(script string) error {
 }
 
 func (gz *GZ) Sync() error {
+	log.Info("Starting sync process...")
+
 	config, err := GetConfig(gz.api)
 	if err != nil {
-		return err
+		log.Error("Failed to get config: %v", err)
+		return fmt.Errorf("config error: %w", err)
 	}
+	log.Info("Config loaded successfully")
 
 	// Get fresh challenges config
+	log.Info("Loading challenges configuration...")
 	challengesConf, err := GetChallengesYaml(config)
 	if err != nil {
-		return err
+		log.Error("Failed to get challenges YAML: %v", err)
+		return fmt.Errorf("challenges config error: %w", err)
 	}
+	log.Info("Loaded %d challenges from configuration", len(challengesConf))
 
 	// Get fresh games list
+	log.Info("Fetching games from API...")
 	games, err := gz.api.GetGames()
 	if err != nil {
-		return err
+		log.Error("Failed to get games: %v", err)
+		return fmt.Errorf("games fetch error: %w", err)
 	}
+	log.Info("Found %d games", len(games))
 
 	currentGame := findCurrentGame(games, config.Event.Title, gz.api)
 	if currentGame == nil {
+		log.Info("Current game not found, clearing cache and retrying...")
 		DeleteCache("config")
 		return gz.Sync()
 	}
+	log.Info("Found current game: %s (ID: %d)", currentGame.Title, currentGame.Id)
 
 	if gz.UpdateGame {
+		log.Info("Updating game configuration...")
 		if err := updateGameIfNeeded(config, currentGame, gz.api); err != nil {
-			return err
+			log.Error("Failed to update game: %v", err)
+			return fmt.Errorf("game update error: %w", err)
 		}
+		log.Info("Game updated successfully")
 	}
 
+	log.Info("Validating challenges...")
 	if err := validateChallenges(challengesConf); err != nil {
-		return err
+		log.Error("Challenge validation failed: %v", err)
+		return fmt.Errorf("validation error: %w", err)
 	}
+	log.Info("All challenges validated successfully")
 
 	// Get fresh challenges list
+	log.Info("Fetching existing challenges from API...")
 	config.Event.CS = gz.api
 	challenges, err := config.Event.GetChallenges()
 	if err != nil {
-		return err
+		log.Error("Failed to get challenges from API: %v", err)
+		return fmt.Errorf("API challenges fetch error: %w", err)
 	}
+	log.Info("Found %d existing challenges in API", len(challenges))
 
 	// Process challenges
+	log.Info("Starting challenge synchronization...")
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(challengesConf))
+	successCount := 0
+	failureCount := 0
 
 	for _, conf := range challengesConf {
 		wg.Add(1)
 		go func(c ChallengeYaml) {
 			defer wg.Done()
+			log.Info("Processing challenge: %s", c.Name)
 			if err := syncChallenge(config, c, challenges, gz.api); err != nil {
-				errChan <- err
+				log.Error("Failed to sync challenge %s: %v", c.Name, err)
+				errChan <- fmt.Errorf("challenge sync failed for %s: %w", c.Name, err)
+				failureCount++
+			} else {
+				log.Info("Successfully synced challenge: %s", c.Name)
+				successCount++
 			}
 		}(conf)
 	}
@@ -340,11 +371,14 @@ func (gz *GZ) Sync() error {
 	wg.Wait()
 	close(errChan)
 
+	log.Info("Sync completed. Success: %d, Failures: %d", successCount, failureCount)
+
 	// Return first error if any
 	select {
 	case err := <-errChan:
 		return err
 	default:
+		log.Info("All challenges synced successfully!")
 		return nil
 	}
 }
@@ -391,5 +425,72 @@ func (gz *GZ) MustCreateTeams(url string, sendEmail bool) {
 func (gz *GZ) MustDeleteAllUser() {
 	if err := gz.DeleteAllUser(); err != nil {
 		log.Fatal("User deletion failed: ", err)
+	}
+}
+
+// StartWatcher starts the file watcher service
+func (gz *GZ) StartWatcher(config WatcherConfig) error {
+	if gz.watcher != nil && gz.watcher.IsWatching() {
+		return fmt.Errorf("watcher is already running")
+	}
+
+	watcher, err := NewWatcher(gz)
+	if err != nil {
+		return fmt.Errorf("failed to create watcher: %w", err)
+	}
+
+	if err := watcher.Start(config); err != nil {
+		return fmt.Errorf("failed to start watcher: %w", err)
+	}
+
+	gz.watcher = watcher
+	return nil
+}
+
+// StopWatcher stops the file watcher service
+func (gz *GZ) StopWatcher() error {
+	if gz.watcher == nil {
+		return fmt.Errorf("no watcher is running")
+	}
+
+	if err := gz.watcher.Stop(); err != nil {
+		return fmt.Errorf("failed to stop watcher: %w", err)
+	}
+
+	gz.watcher = nil
+	return nil
+}
+
+// IsWatcherRunning returns true if the watcher is currently running
+func (gz *GZ) IsWatcherRunning() bool {
+	return gz.watcher != nil && gz.watcher.IsWatching()
+}
+
+// GetWatcherStatus returns the status of the watcher service
+func (gz *GZ) GetWatcherStatus() map[string]interface{} {
+	status := map[string]interface{}{
+		"running": gz.IsWatcherRunning(),
+	}
+
+	if gz.watcher != nil {
+		status["watched_challenges"] = gz.watcher.GetWatchedChallenges()
+	} else {
+		status["watched_challenges"] = []string{}
+	}
+
+	return status
+}
+
+// MustStartWatcher starts the watcher or fatally logs error
+func (gz *GZ) MustStartWatcher(config WatcherConfig) {
+	if err := gz.StartWatcher(config); err != nil {
+		log.Fatal("Failed to start watcher: ", err)
+	}
+}
+
+// MustStopWatcher stops the watcher or fatally logs error
+func (gz *GZ) MustStopWatcher() {
+	if err := gz.StopWatcher(); err != nil {
+		log.Fatal("Failed to stop watcher: ", err)
 	}
 }

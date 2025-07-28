@@ -2,6 +2,7 @@ package gzcli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,28 @@ import (
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
 	"github.com/dimasma0305/ctfify/function/log"
 )
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	if err != nil {
+		return err
+	}
+
+	return destFile.Sync()
+}
 
 func findCurrentGame(games []*gzapi.Game, title string, api *gzapi.GZAPI) *gzapi.Game {
 	for _, game := range games {
@@ -117,8 +140,10 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 	var challengeData *gzapi.Challenge
 	var err error
 
+	log.InfoH2("Starting sync for challenge: %s (Type: %s, Category: %s)", challengeConf.Name, challengeConf.Type, challengeConf.Category)
+
 	if !isChallengeExist(challengeConf.Name, challenges) {
-		log.Info("Create challenge %s", challengeConf.Name)
+		log.InfoH2("Creating new challenge: %s", challengeConf.Name)
 		challengeData, err = config.Event.CreateChallenge(gzapi.CreateChallengeForm{
 			Title:    challengeConf.Name,
 			Category: challengeConf.Category,
@@ -126,15 +151,22 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 			Type:     challengeConf.Type,
 		})
 		if err != nil {
-			return fmt.Errorf("create challenge %s: %v", challengeConf.Name, err)
+			log.Error("Failed to create challenge %s: %v", challengeConf.Name, err)
+			return fmt.Errorf("create challenge %s: %w", challengeConf.Name, err)
 		}
+		log.InfoH2("Successfully created challenge: %s (ID: %d)", challengeConf.Name, challengeData.Id)
 	} else {
-		log.Info("Update challenge %s", challengeConf.Name)
+		log.InfoH2("Updating existing challenge: %s", challengeConf.Name)
 		if err = GetCache(challengeConf.Category+"/"+challengeConf.Name+"/challenge", &challengeData); err != nil {
+			log.InfoH3("Cache miss for %s, fetching from API", challengeConf.Name)
 			challengeData, err = config.Event.GetChallenge(challengeConf.Name)
 			if err != nil {
-				return fmt.Errorf("get challenge %s: %v", challengeConf.Name, err)
+				log.Error("Failed to get challenge %s from API: %v", challengeConf.Name, err)
+				return fmt.Errorf("get challenge %s: %w", challengeConf.Name, err)
 			}
+			log.InfoH3("Successfully fetched challenge %s from API", challengeConf.Name)
+		} else {
+			log.InfoH3("Found challenge %s in cache", challengeConf.Name)
 		}
 
 		// fix bug nill pointer because cache didn't return gzapi
@@ -142,100 +174,203 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 		// fix bug isEnable always be false after sync
 		challengeData.IsEnabled = nil
 	}
+
+	log.InfoH2("Processing attachments for %s", challengeConf.Name)
 	err = handleChallengeAttachments(challengeConf, challengeData, api)
 	if err != nil {
-		return err
+		log.Error("Failed to handle attachments for %s: %v", challengeConf.Name, err)
+		return fmt.Errorf("attachment handling failed for %s: %w", challengeConf.Name, err)
 	}
+	log.InfoH2("Attachments processed successfully for %s", challengeConf.Name)
 
+	log.InfoH2("Updating flags for %s", challengeConf.Name)
 	err = updateChallengeFlags(config, challengeConf, challengeData)
 	if err != nil {
-		return fmt.Errorf("update flags for %s: %v", challengeConf.Name, err)
+		log.Error("Failed to update flags for %s: %v", challengeConf.Name, err)
+		return fmt.Errorf("update flags for %s: %w", challengeConf.Name, err)
 	}
+	log.InfoH2("Flags updated successfully for %s", challengeConf.Name)
 
+	log.InfoH2("Merging challenge data for %s", challengeConf.Name)
 	challengeData = mergeChallengeData(&challengeConf, challengeData)
+
 	if isConfigEdited(&challengeConf, challengeData) {
+		log.InfoH2("Configuration changed for %s, updating...", challengeConf.Name)
 		if challengeData, err = challengeData.Update(*challengeData); err != nil {
-			log.ErrorH2("Update failed %s", err.Error())
+			log.Error("Update failed for %s: %v", challengeConf.Name, err.Error())
 			if strings.Contains(err.Error(), "404") {
+				log.InfoH3("Got 404 error, refreshing challenge data for %s", challengeConf.Name)
 				challengeData, err = config.Event.GetChallenge(challengeConf.Name)
 				if err != nil {
-					return fmt.Errorf("get challenge %s: %v", challengeConf.Name, err)
+					log.Error("Failed to get challenge %s after 404: %v", challengeConf.Name, err)
+					return fmt.Errorf("get challenge %s: %w", challengeConf.Name, err)
 				}
+				log.InfoH3("Retrying update for %s", challengeConf.Name)
 				challengeData, err = challengeData.Update(*challengeData)
 				if err != nil {
-					return fmt.Errorf("update challenge %s: %v", challengeConf.Name, err)
+					log.Error("Update retry failed for %s: %v", challengeConf.Name, err)
+					return fmt.Errorf("update challenge %s: %w", challengeConf.Name, err)
 				}
+			} else {
+				return fmt.Errorf("update challenge %s: %w", challengeConf.Name, err)
 			}
 		}
 		if challengeData == nil {
-			return fmt.Errorf("update challenge failed")
+			log.Error("Update returned nil challenge data for %s", challengeConf.Name)
+			return fmt.Errorf("update challenge failed for %s", challengeConf.Name)
 		}
+		log.InfoH2("Successfully updated challenge %s", challengeConf.Name)
+
+		log.InfoH3("Caching updated challenge data for %s", challengeConf.Name)
 		if err := setCache(challengeData.Category+"/"+challengeConf.Name+"/challenge", challengeData); err != nil {
-			return err
+			log.Error("Failed to cache challenge data for %s: %v", challengeConf.Name, err)
+			return fmt.Errorf("cache error for %s: %w", challengeConf.Name, err)
 		}
+		log.InfoH3("Successfully cached challenge data for %s", challengeConf.Name)
 	} else {
-		log.Info("Challenge %s is the same...", challengeConf.Name)
+		log.InfoH2("Challenge %s is unchanged, skipping update", challengeConf.Name)
 	}
+
+	log.InfoH2("Successfully completed sync for challenge: %s", challengeConf.Name)
 	return nil
 }
 
 func handleChallengeAttachments(challengeConf ChallengeYaml, challengeData *gzapi.Challenge, api *gzapi.GZAPI) error {
+	log.InfoH3("Processing attachments for challenge: %s", challengeConf.Name)
+
 	if challengeConf.Provide != nil {
+		log.InfoH3("Challenge %s has attachment: %s", challengeConf.Name, *challengeConf.Provide)
+
 		if strings.HasPrefix(*challengeConf.Provide, "http") {
-			log.Info("Create remote attachment for %s", challengeConf.Name)
+			log.InfoH3("Creating remote attachment for %s: %s", challengeConf.Name, *challengeConf.Provide)
 			if err := challengeData.CreateAttachment(gzapi.CreateAttachmentForm{
 				AttachmentType: "Remote",
 				RemoteUrl:      *challengeConf.Provide,
 			}); err != nil {
-				return err
+				log.Error("Failed to create remote attachment for %s: %v", challengeConf.Name, err)
+				return fmt.Errorf("remote attachment creation failed for %s: %w", challengeConf.Name, err)
 			}
+			log.InfoH3("Successfully created remote attachment for %s", challengeConf.Name)
 		} else {
+			log.InfoH3("Processing local attachment for %s: %s", challengeConf.Name, *challengeConf.Provide)
 			return handleLocalAttachment(challengeConf, challengeData, api)
 		}
 	} else if challengeData.Attachment != nil {
-		log.Info("Delete attachment for %s", challengeConf.Name)
+		log.InfoH3("Removing existing attachment for %s", challengeConf.Name)
 		if err := challengeData.CreateAttachment(gzapi.CreateAttachmentForm{
 			AttachmentType: "None",
 		}); err != nil {
-			return err
+			log.Error("Failed to remove attachment for %s: %v", challengeConf.Name, err)
+			return fmt.Errorf("attachment removal failed for %s: %w", challengeConf.Name, err)
 		}
+		log.InfoH3("Successfully removed attachment for %s", challengeConf.Name)
+	} else {
+		log.InfoH3("No attachment processing needed for %s", challengeConf.Name)
 	}
+
+	log.InfoH3("Attachment processing completed for %s", challengeConf.Name)
 	return nil
 }
 
 func handleLocalAttachment(challengeConf ChallengeYaml, challengeData *gzapi.Challenge, api *gzapi.GZAPI) error {
-	log.Info("Create local attachment for %s", challengeConf.Name)
+	log.InfoH3("Creating local attachment for %s", challengeConf.Name)
+
 	zipFilename := NormalizeFileName(*challengeConf.Provide) + ".zip"
 	zipOutput := filepath.Join(challengeConf.Cwd, zipFilename)
-	if info, err := os.Stat(filepath.Join(challengeConf.Cwd, *challengeConf.Provide)); err != nil || info.IsDir() {
-		log.Info("Zip attachment for %s", challengeConf.Name)
-		zipInput := filepath.Join(challengeConf.Cwd, *challengeConf.Provide)
-		if err := zipSource(zipInput, zipOutput); err != nil {
-			return err
+	attachmentPath := filepath.Join(challengeConf.Cwd, *challengeConf.Provide)
+
+	log.InfoH3("Checking attachment path: %s", attachmentPath)
+	if info, err := os.Stat(attachmentPath); err != nil || info.IsDir() {
+		log.InfoH3("Creating zip file for %s from: %s", challengeConf.Name, attachmentPath)
+		if err := zipSource(attachmentPath, zipOutput); err != nil {
+			log.Error("Failed to create zip for %s: %v", challengeConf.Name, err)
+			return fmt.Errorf("zip creation failed for %s: %w", challengeConf.Name, err)
 		}
+		log.InfoH3("Successfully created zip file: %s", zipOutput)
 		challengeConf.Provide = &zipFilename
+	} else {
+		log.InfoH3("Using existing file: %s", attachmentPath)
 	}
-	fileinfo, err := createAssetsIfNotExistOrDifferent(filepath.Join(challengeConf.Cwd, *challengeConf.Provide), api)
+
+	// Create a unique attachment file for this challenge to avoid hash conflicts
+	originalFilePath := filepath.Join(challengeConf.Cwd, *challengeConf.Provide)
+	uniqueFilename := fmt.Sprintf("%s_%s", challengeConf.Name, *challengeConf.Provide)
+	uniqueFilePath := filepath.Join(challengeConf.Cwd, uniqueFilename)
+
+	log.InfoH3("Creating unique attachment file: %s", uniqueFilePath)
+
+	// Copy the original file and append challenge metadata to make it unique
+	if err := createUniqueAttachmentFile(originalFilePath, uniqueFilePath, challengeConf.Name); err != nil {
+		log.Error("Failed to create unique attachment file for %s: %v", challengeConf.Name, err)
+		return fmt.Errorf("unique file creation failed for %s: %w", challengeConf.Name, err)
+	}
+
+	log.InfoH3("Creating/checking assets for %s", challengeConf.Name)
+	fileinfo, err := createAssetsIfNotExistOrDifferent(uniqueFilePath, api)
 	if err != nil {
-		return err
+		os.Remove(uniqueFilePath) // Clean up on error
+		log.Error("Failed to create/check assets for %s: %v", challengeConf.Name, err)
+		return fmt.Errorf("asset creation failed for %s: %w", challengeConf.Name, err)
 	}
+	log.InfoH3("Asset info for %s: Hash=%s, Name=%s", challengeConf.Name, fileinfo.Hash, fileinfo.Name)
+
+	// Check if the challenge already has the same attachment hash
 	if challengeData.Attachment != nil && strings.Contains(challengeData.Attachment.Url, fileinfo.Hash) {
-		log.Info("Attachment for %s is the same...", challengeConf.Name)
+		log.InfoH3("Attachment for %s is unchanged (hash: %s)", challengeConf.Name, fileinfo.Hash)
 	} else {
 		var attachmentUrl string
 		if challengeData.Attachment != nil {
 			attachmentUrl = challengeData.Attachment.Url
 		}
-		log.Info("Update attachment for %s %s %s", challengeConf.Name, fileinfo.Hash, attachmentUrl)
-		if err := challengeData.CreateAttachment(gzapi.CreateAttachmentForm{
+		log.InfoH3("Updating attachment for %s (hash: %s, current: %s)", challengeConf.Name, fileinfo.Hash, attachmentUrl)
+
+		// Try to create the attachment
+		err := challengeData.CreateAttachment(gzapi.CreateAttachmentForm{
 			AttachmentType: "Local",
 			FileHash:       fileinfo.Hash,
-		}); err != nil {
-			return err
+		})
+
+		if err != nil {
+			log.Error("Failed to create local attachment for %s: %v", challengeConf.Name, err)
+			os.Remove(uniqueFilePath) // Clean up on error
+			return fmt.Errorf("local attachment creation failed for %s: %w", challengeConf.Name, err)
+		} else {
+			log.InfoH3("Successfully created local attachment for %s", challengeConf.Name)
 		}
 	}
-	os.Remove(zipOutput)
+
+	// Clean up temporary files
+	if strings.HasSuffix(zipOutput, ".zip") {
+		log.InfoH3("Cleaning up temporary zip file: %s", zipOutput)
+		os.Remove(zipOutput)
+	}
+
+	// Clean up the unique file after successful upload
+	log.InfoH3("Cleaning up unique attachment file: %s", uniqueFilePath)
+	os.Remove(uniqueFilePath)
+
+	log.InfoH3("Local attachment processing completed for %s", challengeConf.Name)
 	return nil
+}
+
+// createUniqueAttachmentFile creates a unique version of the attachment file by appending metadata
+func createUniqueAttachmentFile(srcPath, dstPath, challengeName string) error {
+	// Copy the original file
+	if err := copyFile(srcPath, dstPath); err != nil {
+		return err
+	}
+
+	// Append challenge-specific metadata to make the file unique
+	file, err := os.OpenFile(dstPath, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Add a comment or metadata that makes this file unique for this challenge
+	metadata := fmt.Sprintf("\n# Challenge: %s\n", challengeName)
+	_, err = file.WriteString(metadata)
+	return err
 }
 
 func updateChallengeFlags(config *Config, challengeConf ChallengeYaml, challengeData *gzapi.Challenge) error {

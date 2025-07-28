@@ -20,6 +20,37 @@ If you successfully solve a challenge, please consider contributing a detailed w
 
 ## Instructions for Challenge Authors
 
-As a challenge author, it is highly recommended to include a solver (or at least detailed hints) to assist participants in verifying their solutions and understanding the intended approach. Please follow these guidelines:
+As a challenge author, it is highly recommended to include a solver to assist participants in verifying their solutions and understanding the intended approach. Please follow these guidelines:
 
-- **Provide a Solver:** If applicable, include a solver script or program in the challenge folder (e.g., `solver/` directory).
+- **Use Template Structure:** Base your challenge on the templates provided in the `.example/` directory:
+  - `static-attachment/` - For challenges with static files/attachments
+  - `static-attachment-with-compose/` - For challenges requiring Docker Compose setup
+  - `static-container/` - For challenges that need one container per person/team 
+
+- **⚠️ Hints in challenge.yml:** You can add hints in your `challenge.yml` file if desired, but keep in mind that these hints will automatically become public on the platform once the challenge is published and will be visible to all participants.
+
+### Automatic Challenge Updates
+
+The CTF CI/CD supports **automatic challenge updates** when you push changes to the repository. Here's how it works:
+
+#### **Update Types Based on File Location:**
+
+- **📝 Configuration Changes** (`challenge.yml`): Updates challenge metadata, description, flags, and attachments
+- **📁 Attachment Updates** (`dist/` folder): Updates only the challenge attachment files
+- **🔄 Full Redeploy** (`src/` folder): Stops services, updates challenge, and restarts services
+- **🐳 Infrastructure Changes** (`Dockerfile`, `docker-compose.yml`, `Makefile`): Complete redeploy with service restart
+- **📚 Documentation** (`solver/`, `writeup/` folders): No updates (documentation only)
+
+#### **How to Update Your Challenge:**
+
+1. **Make your changes** to the appropriate files in your challenge directory
+2. **Commit and push** your changes to the repository:
+   ```bash
+   git add .
+   git commit -m "Update challenge: description and fix vulnerability"
+   git push origin main
+   ```
+3. **Automatic deployment** happens within seconds based on what you changed:
+   - Edit `challenge.yml` → Metadata update (~3 seconds)
+   - Update `dist/files.zip` → Attachment update (~2 seconds)  
+   - Modify `src/app.py` → Full redeploy (~10 seconds)

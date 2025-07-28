@@ -33,10 +33,16 @@ type Challenge struct {
 }
 
 func (c *Challenge) Delete() error {
+	if c.CS == nil {
+		return fmt.Errorf("GZAPI client is not initialized")
+	}
 	return c.CS.delete(fmt.Sprintf("/api/edit/games/%d/challenges/%d", c.GameId, c.Id), nil)
 }
 
 func (c *Challenge) Update(challenge Challenge) (*Challenge, error) {
+	if c.CS == nil {
+		return nil, fmt.Errorf("GZAPI client is not initialized")
+	}
 	if err := c.CS.put(fmt.Sprintf("/api/edit/games/%d/challenges/%d", c.GameId, c.Id), &challenge, nil); err != nil {
 		return nil, err
 	}
@@ -44,6 +50,9 @@ func (c *Challenge) Update(challenge Challenge) (*Challenge, error) {
 }
 
 func (c *Challenge) Refresh() (*Challenge, error) {
+	if c.CS == nil {
+		return nil, fmt.Errorf("GZAPI client is not initialized")
+	}
 	var data Challenge
 	if err := c.CS.get(fmt.Sprintf("/api/edit/games/%d/challenges/%d", c.GameId, c.Id), &data); err != nil {
 		return nil, err
@@ -61,6 +70,10 @@ type CreateChallengeForm struct {
 }
 
 func (g *Game) CreateChallenge(challenge CreateChallengeForm) (*Challenge, error) {
+	if g.CS == nil {
+		return nil, fmt.Errorf("GZAPI client is not initialized")
+	}
+
 	var data *Challenge
 	if err := g.CS.post(fmt.Sprintf("/api/edit/games/%d/challenges", g.Id), challenge, &data); err != nil {
 		return nil, err
@@ -71,6 +84,10 @@ func (g *Game) CreateChallenge(challenge CreateChallengeForm) (*Challenge, error
 }
 
 func (g *Game) GetChallenges() ([]Challenge, error) {
+	if g.CS == nil {
+		return nil, fmt.Errorf("GZAPI client is not initialized")
+	}
+
 	var tmp []Challenge
 	var data []Challenge
 	if err := g.CS.get(fmt.Sprintf("/api/edit/games/%d/challenges", g.Id), &tmp); err != nil {

@@ -4,7 +4,10 @@ go 1.22
 
 require (
 	github.com/PuerkitoBio/goquery v1.8.1
+	github.com/fsnotify/fsnotify v1.9.0
+	github.com/google/go-cmp v0.6.0
 	github.com/imroc/req/v3 v3.42.3
+	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.8.0
 )
 
@@ -12,19 +15,12 @@ require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
-	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect
 	github.com/klauspost/compress v1.17.6 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
-	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
 	github.com/refraction-networking/utls v1.6.2 // indirect
-	github.com/richardlehane/mscfb v1.0.4 // indirect
-	github.com/richardlehane/msoleps v1.0.3 // indirect
 	github.com/satori/go.uuid v1.2.0 // indirect
-	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/stretchr/testify v1.8.4 // indirect
-	github.com/xuri/efp v0.0.0-20231025114914-d1ff6096ae53 // indirect
-	github.com/xuri/nfp v0.0.0-20230919160717-d98342af3f05 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
 )
@@ -46,7 +42,6 @@ require (
 	github.com/quic-go/quic-go v0.41.0 // indirect
 	github.com/sethvargo/go-password v0.3.1
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/xuri/excelize/v2 v2.8.1
 	golang.org/x/crypto v0.19.0 // indirect
 	golang.org/x/exp v0.0.0-20240213143201-ec583247a57a // indirect
 	golang.org/x/mod v0.15.0 // indirect

@@ -8,6 +8,34 @@ import (
 	"github.com/fatih/color"
 )
 
+var debugMode = false
+
+// SetDebugMode enables or disables debug logging
+func SetDebugMode(enabled bool) {
+	debugMode = enabled
+}
+
+// Debug logs debug messages when debug mode is enabled
+func Debug(format string, elem ...any) {
+	if debugMode {
+		fmt.Println(color.CyanString("[DEBUG] ") + fmt.Sprintf(format, elem...))
+	}
+}
+
+// DebugH2 logs indented debug messages when debug mode is enabled
+func DebugH2(format string, elem ...any) {
+	if debugMode {
+		fmt.Println(color.CyanString("  [DEBUG] ") + fmt.Sprintf(format, elem...))
+	}
+}
+
+// DebugH3 logs more indented debug messages when debug mode is enabled
+func DebugH3(format string, elem ...any) {
+	if debugMode {
+		fmt.Println(color.CyanString("    [DEBUG] ") + fmt.Sprintf(format, elem...))
+	}
+}
+
 func Fatal(args ...interface{}) {
 	var message string
 
