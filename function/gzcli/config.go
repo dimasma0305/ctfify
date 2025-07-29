@@ -49,42 +49,70 @@ func GetConfig(api *gzapi.GZAPI) (*Config, error) {
 		return nil, err
 	}
 
-	// Parallel check for cache and API
-	var wg sync.WaitGroup
+	// First, try to get cached config
 	var configCache Config
-	var cacheErr, apiErr error
+	cacheErr := GetCache("config", &configCache)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		cacheErr = GetCache("config", &configCache)
-	}()
-
-	if api != nil && api.Client != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			game, err := api.GetGameByTitle(config.Event.Title)
-			if err != nil {
-				game, apiErr = createNewGame(&config, api)
-			}
-			if game != nil {
-				config.Event.Id = game.Id
-				config.Event.PublicKey = game.PublicKey
-			}
-		}()
-	}
-
-	wg.Wait()
-
-	if cacheErr == nil {
+	// If we have cached game info, use it as the starting point
+	if cacheErr == nil && configCache.Event.Id != 0 {
 		config.Event.Id = configCache.Event.Id
 		config.Event.PublicKey = configCache.Event.PublicKey
+		log.Info("Using cached game ID: %d", config.Event.Id)
 	}
 
-	if apiErr != nil {
-		return nil, apiErr
+	// Only interact with API if provided and we need to validate/create game
+	if api != nil && api.Client != nil {
+		// If we have a cached game ID, try to validate it exists
+		if config.Event.Id != 0 {
+			log.Info("Validating cached game ID %d exists on server...", config.Event.Id)
+			games, err := api.GetGames()
+			if err != nil {
+				log.Error("Failed to get games for validation: %v", err)
+				return nil, fmt.Errorf("API games fetch error: %w", err)
+			}
+
+			// Check if the cached game ID still exists
+			gameExists := false
+			for _, game := range games {
+				if game.Id == config.Event.Id {
+					gameExists = true
+					// Update with current server data but keep the same ID
+					config.Event.PublicKey = game.PublicKey
+					log.Info("Cached game ID %d validated successfully", config.Event.Id)
+					break
+				}
+			}
+
+			// If cached game doesn't exist, clear cache and try to find by title
+			if !gameExists {
+				log.Info("Cached game ID %d not found on server, searching by title...", config.Event.Id)
+				DeleteCache("config")
+				config.Event.Id = 0
+				config.Event.PublicKey = ""
+			}
+		}
+
+		// If we don't have a valid game ID, try to find by title or create new
+		if config.Event.Id == 0 {
+			game, err := api.GetGameByTitle(config.Event.Title)
+			if err != nil {
+				log.Info("Game '%s' not found by title, creating new game...", config.Event.Title)
+				game, err = createNewGame(&config, api)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create new game: %w", err)
+				}
+			} else {
+				log.Info("Found existing game by title: %s (ID: %d)", game.Title, game.Id)
+				config.Event.Id = game.Id
+				config.Event.PublicKey = game.PublicKey
+				// Update cache with found game
+				if err := setCache("config", &config); err != nil {
+					log.Error("Failed to update cache with found game: %v", err)
+				}
+			}
+		}
 	}
+
 	config.appsettings, err = getAppSettings()
 	if err != nil {
 		return nil, fmt.Errorf("errror parsing appsettings.json: %s", err)

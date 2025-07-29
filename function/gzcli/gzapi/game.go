@@ -86,7 +86,6 @@ func (cs *GZAPI) GetGameByTitle(title string) (*Game, error) {
 		return nil, err
 	}
 	for _, game := range games {
-		fmt.Println(game.Title, title)
 		if game.Title == title {
 			return game, nil
 		}
