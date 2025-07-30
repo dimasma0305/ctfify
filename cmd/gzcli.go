@@ -24,6 +24,10 @@ type tcommandFlags struct {
 	deleteUsersFlag  bool
 	updateGameFlag   bool
 	genStructureFlag bool
+	// Init-related flags
+	initUrl            string
+	initPublicEntry    string
+	initDiscordWebhook string
 	// Watch-related flags
 	watchRunFlag      bool
 	watchStatusFlag   bool
@@ -43,11 +47,21 @@ var commandFlags tcommandFlags
 var gzcliCmd = &cobra.Command{
 	Use:   "gzcli",
 	Short: "High-performance CLI for gz::ctf",
-	Long:  `Optimized command line interface for gz::ctf operations with file watching capabilities`,
+	Long: `Optimized command line interface for gz::ctf operations with file watching capabilities.
+
+For CTF initialization, you can provide values via flags or be prompted for input:
+  --init-url              URL for the new CTF instance  
+  --init-public-entry     Public entry point for the new CTF instance
+  --init-discord-webhook  Discord webhook URL for notifications`,
 	Run: func(cmd *cobra.Command, args []string) {
 		switch {
 		case commandFlags.initFlag:
-			if errors := other.CTFTemplate(".", map[string]string{}); errors != nil {
+			initInfo := map[string]string{
+				"url":            commandFlags.initUrl,
+				"publicEntry":    commandFlags.initPublicEntry,
+				"discordWebhook": commandFlags.initDiscordWebhook,
+			}
+			if errors := other.CTFTemplate(".", initInfo); errors != nil {
 				for _, err := range errors {
 					if err != nil {
 						log.Error("%s", err)
@@ -98,7 +112,7 @@ func init() {
 	flags := gzcliCmd.Flags()
 
 	// Original flags
-	flags.BoolVar(&commandFlags.initFlag, "init", false, "Initialize new CTF structure")
+	flags.BoolVar(&commandFlags.initFlag, "init", false, "Initialize new CTF structure (use with --init-url, --init-public-entry, --init-discord-webhook flags or be prompted for input)")
 	flags.BoolVar(&commandFlags.genStructureFlag, "gen-structure", false, "generate structure for each challenge folder based on .structure")
 	flags.BoolVar(&commandFlags.syncFlag, "sync", false, "Synchronize CTF data")
 	flags.BoolVar(&commandFlags.ctftimeFlag, "ctftime-scoreboard", false, "Generate CTFTime scoreboard feed")
@@ -107,6 +121,11 @@ func init() {
 	flags.StringVar(&commandFlags.createTeamsEmail, "create-teams-and-send-email", "", "Create teams and send emails")
 	flags.BoolVar(&commandFlags.deleteUsersFlag, "delete-all-user", false, "Remove all users")
 	flags.BoolVar(&commandFlags.updateGameFlag, "update-game", false, "Update the game")
+
+	// Init-related flags
+	flags.StringVar(&commandFlags.initUrl, "init-url", "", "URL for the new CTF instance")
+	flags.StringVar(&commandFlags.initPublicEntry, "init-public-entry", "", "Public entry point for the new CTF instance")
+	flags.StringVar(&commandFlags.initDiscordWebhook, "init-discord-webhook", "", "Discord webhook URL for notifications")
 
 	// Watch-related flags
 	flags.BoolVar(&commandFlags.watchRunFlag, "watch", false, "Run file watcher for automatic challenge redeployment")

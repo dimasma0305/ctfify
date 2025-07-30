@@ -50,9 +50,26 @@ func getUserInput(str string) string {
 }
 
 func CTFTemplate(destination string, info any) []error {
-	url := getUserInput("URL: ")
-	publicEntry := getUserInput("Public Entry: ")
-	discordWebhook := getUserInput("Discord Webhook: ")
+	var url, publicEntry, discordWebhook string
+
+	// Try to extract values from info map if provided
+	if infoMap, ok := info.(map[string]string); ok {
+		url = infoMap["url"]
+		publicEntry = infoMap["publicEntry"]
+		discordWebhook = infoMap["discordWebhook"]
+	}
+
+	// Fall back to user input if values are not provided
+	if url == "" {
+		url = getUserInput("URL: ")
+	}
+	if publicEntry == "" {
+		publicEntry = getUserInput("Public Entry: ")
+	}
+	if discordWebhook == "" {
+		discordWebhook = getUserInput("Discord Webhook: ")
+	}
+
 	ctfInfo := &CTFInfo{
 		XorKey:         randomize(16),
 		Username:       "admin",

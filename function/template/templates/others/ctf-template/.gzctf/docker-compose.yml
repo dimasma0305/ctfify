@@ -16,6 +16,21 @@ services:
     depends_on:
       - db
       - cache
+    networks:
+      - traefik
+      - default
+    labels:
+        - "traefik.enable=true"
+        - "traefik.http.services.gzctf.loadbalancer.server.port=8080"
+        # HTTPS router
+        - "traefik.http.routers.https.rule=Host(`{{.PublicEntry}}`)"
+        - "traefik.http.routers.https.entrypoints=websecure"
+        - "traefik.http.routers.https.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.https.service=gzctf"
+        # HTTP router
+        - "traefik.http.routers.http.rule=Host(`{{.PublicEntry}}`)"
+        - "traefik.http.routers.http.entrypoints=web"
+        - "traefik.http.routers.http.service=gzctf"
   gzctf-bot:
     build: bot
     restart: always
@@ -34,19 +49,36 @@ services:
     image: redis:alpine
     restart: always
 
-  nginx:
-    build:
-      context: ./nginx
-      dockerfile: Dockerfile
+  traefik:
+    image: traefik:v3.5
+    restart: always
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=traefik"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.email=dimasmaulana0305@gmail.com"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./letsencrypt:/letsencrypt"
+    networks:
+      - traefik
+      - default
     depends_on:
       - gzctf
-    volumes:
-      - ./nginx/ssl.conf:/etc/nginx/sites-available/{{.PublicEntry}}
-      - ./letsencrypt:/etc/letsencrypt
-    ports:
-      - "443:443"
-      - "80:80"
 
 volumes:
   gzctf-files:
   postgres-data:
+
+networks:
+  traefik:
+    external: true
