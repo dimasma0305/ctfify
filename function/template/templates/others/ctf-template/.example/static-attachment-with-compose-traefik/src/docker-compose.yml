@@ -7,9 +7,9 @@ services:
     labels:
       - "traefik.enable=true"
       # openssl s_client -connect localhost:80 -servername static-attachment.category.{{.PublicEntry}} -quiet
-      - "traefik.tcp.routers.service.rule=HostSNI(`static-attachment.category.{{.PublicEntry}}`)"
-      - "traefik.tcp.routers.service.tls=true"
-      - "traefik.tcp.services.service.loadbalancer.server.port=8011"
+      - "traefik.tcp.routers.static_attachment.rule=HostSNI(`static-attachment.category.{{.PublicEntry}}`)"
+      - "traefik.tcp.routers.static_attachment.tls=true"
+      - "traefik.tcp.services.static_attachment.loadbalancer.server.port=8011"
     deploy:
       resources:
         limits:

@@ -162,7 +162,7 @@ func completerBuilder(tmplList map[string]info) func(cmd *cobra.Command, args []
 func init() {
 	rootCmd.AddCommand(addCmd)
 	addCmd.Flags().StringVarP(&addFlag.Name, "name", "n", "{.Name}", "Name")
-	addCmd.Flags().StringVarP(&addFlag.Destination, "destination", "d", ".", "destination")
+	addCmd.Flags().StringVarP(&addFlag.Destination, "destination", "t", ".", "destination")
 	addCmd.Flags().StringVar(&addFlag.TemplateSolver, "solver", "", "solver template")
 	addCmd.Flags().StringVar(&addFlag.TemplateChallenge, "challenge", "", "challenge template")
 	addCmd.Flags().StringVar(&addFlag.TemplateOther, "other", "", "other template")

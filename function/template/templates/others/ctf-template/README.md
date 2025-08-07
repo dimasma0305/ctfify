@@ -25,6 +25,7 @@ As a challenge author, it is highly recommended to include a solver to assist pa
 - **Use Template Structure:** Base your challenge on the templates provided in the `.example/` directory:
   - `static-attachment/` - For challenges with static files/attachments
   - `static-attachment-with-compose/` - For challenges requiring Docker Compose setup
+  - `static-attachment-with-compose-traefik/` - For challenges requiring custom domain routing, host SNI, or Traefik reverse proxy integration
   - `static-container/` - For challenges that need one container per person/team 
 
 - **⚠️ Hints in challenge.yml:** You can add hints in your `challenge.yml` file if desired, but keep in mind that these hints will automatically become public on the platform once the challenge is published and will be visible to all participants.
