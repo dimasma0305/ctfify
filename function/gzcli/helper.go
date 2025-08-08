@@ -142,7 +142,17 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 
 	log.InfoH2("Starting sync for challenge: %s (Type: %s, Category: %s)", challengeConf.Name, challengeConf.Type, challengeConf.Category)
 
-	if !isChallengeExist(challengeConf.Name, challenges) {
+	// Fetch fresh challenges list to prevent race conditions with parallel sync
+	freshChallenges, err := config.Event.GetChallenges()
+	if err != nil {
+		log.Error("Failed to get fresh challenges list for %s: %v", challengeConf.Name, err)
+		// Fallback to original challenges list if fresh fetch fails
+		freshChallenges = challenges
+	} else {
+		log.InfoH3("Fetched fresh challenges list for %s (%d challenges)", challengeConf.Name, len(freshChallenges))
+	}
+
+	if !isChallengeExist(challengeConf.Name, freshChallenges) {
 		log.InfoH2("Creating new challenge: %s", challengeConf.Name)
 		challengeData, err = config.Event.CreateChallenge(gzapi.CreateChallengeForm{
 			Title:    challengeConf.Name,

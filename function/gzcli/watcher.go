@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -39,18 +38,14 @@ type WatcherConfig struct {
 	DebounceTime              time.Duration
 	IgnorePatterns            []string
 	WatchPatterns             []string
-	EnableGitPull             bool
-	GitPullInterval           time.Duration
 	NewChallengeCheckInterval time.Duration // New field for checking new challenges
 }
 
 var DefaultWatcherConfig = WatcherConfig{
 	PollInterval:              5 * time.Second,
 	DebounceTime:              2 * time.Second,
-	IgnorePatterns:            []string{}, // No ignore patterns
-	WatchPatterns:             []string{}, // Empty means watch all files
-	EnableGitPull:             false,      // Disabled by default
-	GitPullInterval:           5 * time.Second,
+	IgnorePatterns:            []string{},       // No ignore patterns
+	WatchPatterns:             []string{},       // Empty means watch all files
 	NewChallengeCheckInterval: 10 * time.Second, // Check for new challenges every 10 seconds
 }
 
@@ -131,16 +126,6 @@ func (w *Watcher) Start(config WatcherConfig) error {
 		defer w.wg.Done()
 		w.watchLoop(config)
 	}()
-
-	// Start git pull routine if enabled
-	if config.EnableGitPull {
-		log.Info("Git pull enabled, checking every %v", config.GitPullInterval)
-		w.wg.Add(1)
-		go func() {
-			defer w.wg.Done()
-			w.gitPullLoop(config)
-		}()
-	}
 
 	// Start new challenge checking routine
 	log.Info("New challenge detection enabled, checking every %v", w.config.NewChallengeCheckInterval)
@@ -792,150 +777,6 @@ func (w *Watcher) getPendingUpdate(challengeName string) (string, bool) {
 		log.DebugH3("Retrieved pending update for %s: %s", challengeName, filePath)
 	}
 	return filePath, exists
-}
-
-// gitPullLoop runs git pull periodically
-func (w *Watcher) gitPullLoop(config WatcherConfig) {
-	ticker := time.NewTicker(config.GitPullInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-w.ctx.Done():
-			log.Info("Git pull loop stopped")
-			return
-		case <-ticker.C:
-			w.performGitPull()
-		}
-	}
-}
-
-// performGitPull executes git pull and handles the result
-func (w *Watcher) performGitPull() {
-	log.DebugH3("Checking for git updates...")
-
-	// Get current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		log.Error("Failed to get current working directory: %v", err)
-		return
-	}
-
-	// Check if this is a git repository
-	gitDir := filepath.Join(cwd, ".git")
-	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
-		log.DebugH3("Not a git repository, skipping git pull")
-		return
-	}
-
-	// Execute git pull
-	cmd := exec.CommandContext(w.ctx, "git", "pull")
-	cmd.Dir = cwd
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		log.Error("Git pull failed: %v", err)
-		log.DebugH3("Git pull output: %s", string(output))
-		return
-	}
-
-	outputStr := strings.TrimSpace(string(output))
-
-	// Check if there were any changes
-	if strings.Contains(outputStr, "Already up to date") || strings.Contains(outputStr, "Already up-to-date") {
-		log.DebugH3("Repository is up to date")
-		return
-	}
-
-	// There were changes
-	log.InfoH2("Git pull completed with changes:")
-	log.InfoH3("%s", outputStr)
-
-	// Parse the output to see what files changed
-	lines := strings.Split(outputStr, "\n")
-	changedFiles := []string{}
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		// Look for file change patterns in git pull output
-		if strings.Contains(line, "|") && (strings.Contains(line, "+") || strings.Contains(line, "-")) {
-			// Extract filename (format: " filename.ext | 5 ++---")
-			parts := strings.Split(line, "|")
-			if len(parts) > 0 {
-				filename := strings.TrimSpace(parts[0])
-				if filename != "" {
-					changedFiles = append(changedFiles, filename)
-				}
-			}
-		}
-	}
-
-	// Process changed files
-	if len(changedFiles) > 0 {
-		log.InfoH3("Processing %d changed files from git pull", len(changedFiles))
-
-		// Check if any of the changed files might be new challenge directories
-		shouldCheckNewChallenges := false
-
-		for _, file := range changedFiles {
-			log.DebugH3("Git pull changed file: %s", file)
-
-			// Check if this could be a new challenge directory
-			// Look for challenge.yml files or directories that match challenge categories
-			if strings.HasSuffix(file, "challenge.yml") || w.isInChallengeCategory(file) {
-				shouldCheckNewChallenges = true
-			}
-
-			// Convert relative path to absolute path
-			absPath := filepath.Join(cwd, file)
-			if _, err := os.Stat(absPath); err == nil {
-				// File exists, process the change
-				go w.handleFileChange(absPath)
-			}
-		}
-
-		// If we detected potential new challenges, check for them
-		if shouldCheckNewChallenges {
-			log.InfoH3("Potential new challenges detected, checking for new challenges...")
-
-			// Get current challenges to check for new ones
-			challenges, err := w.getChallenges()
-			if err != nil {
-				log.Error("Failed to get challenges for new challenge check after git pull: %v", err)
-			} else {
-				// This will both add to watcher and sync new challenges
-				w.checkAndAddNewChallenges(challenges)
-			}
-		}
-	} else {
-		log.InfoH3("Git pull completed but no specific files detected, triggering general sync")
-		// If we can't detect specific files, trigger a general sync for all challenges
-		go w.handleGitPullGeneralSync()
-	}
-}
-
-// handleGitPullGeneralSync triggers a sync for all challenges when specific files can't be detected
-func (w *Watcher) handleGitPullGeneralSync() {
-	log.InfoH2("Performing general sync after git pull")
-
-	challenges, err := w.getChallenges()
-	if err != nil {
-		log.Error("Failed to get challenges for general sync: %v", err)
-		return
-	}
-
-	// Check for new challenges first
-	w.checkAndAddNewChallenges(challenges)
-
-	// Process each challenge
-	for _, challenge := range challenges {
-		// Use challenge.yml as the trigger file for metadata update
-		challengeYmlPath := filepath.Join(challenge.Cwd, "challenge.yml")
-		if _, err := os.Stat(challengeYmlPath); err == nil {
-			log.DebugH3("Triggering sync for challenge: %s", challenge.Name)
-			w.handleFileChange(challengeYmlPath)
-		}
-	}
 }
 
 // newChallengeCheckLoop periodically checks for new challenges

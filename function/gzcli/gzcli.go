@@ -352,10 +352,27 @@ func (gz *GZ) Sync() error {
 	successCount := 0
 	failureCount := 0
 
+	// Create per-challenge mutexes to prevent race conditions
+	challengeMutexes := make(map[string]*sync.Mutex)
+	var mutexesMu sync.RWMutex
+
 	for _, conf := range challengesConf {
 		wg.Add(1)
 		go func(c ChallengeYaml) {
 			defer wg.Done()
+
+			// Get or create mutex for this challenge to prevent duplicates
+			mutexesMu.Lock()
+			if challengeMutexes[c.Name] == nil {
+				challengeMutexes[c.Name] = &sync.Mutex{}
+			}
+			mutex := challengeMutexes[c.Name]
+			mutexesMu.Unlock()
+
+			// Synchronize access per challenge to prevent race conditions
+			mutex.Lock()
+			defer mutex.Unlock()
+
 			log.Info("Processing challenge: %s", c.Name)
 			if err := syncChallenge(config, c, challenges, gz.api); err != nil {
 				log.Error("Failed to sync challenge %s: %v", c.Name, err)

@@ -36,9 +36,6 @@ type tcommandFlags struct {
 	watchIgnore       []string
 	watchPatterns     []string
 	watchStatusJSON   bool
-	// Git pull flags
-	watchGitPull         bool
-	watchGitPullInterval time.Duration
 }
 
 var commandFlags tcommandFlags
@@ -136,9 +133,6 @@ func init() {
 	flags.StringSliceVar(&commandFlags.watchPatterns, "watch-patterns", []string{}, "File patterns to watch (overrides default)")
 	flags.BoolVar(&commandFlags.watchStatusJSON, "watch-status-json", false, "Output watch status in JSON format")
 
-	// Git pull flags
-	flags.BoolVar(&commandFlags.watchGitPull, "watch-git-pull", false, "Enable periodic git pull to sync repository")
-	flags.DurationVar(&commandFlags.watchGitPullInterval, "watch-git-pull-interval", 5*time.Second, "Interval for git pull checks")
 }
 
 func generateCTFTimeFeed(gz *gzcli.GZ) {
@@ -165,8 +159,6 @@ func handleWatchRun() {
 		DebounceTime:              commandFlags.watchDebounce,
 		IgnorePatterns:            gzcli.DefaultWatcherConfig.IgnorePatterns,
 		WatchPatterns:             gzcli.DefaultWatcherConfig.WatchPatterns,
-		EnableGitPull:             commandFlags.watchGitPull,
-		GitPullInterval:           commandFlags.watchGitPullInterval,
 		NewChallengeCheckInterval: gzcli.DefaultWatcherConfig.NewChallengeCheckInterval,
 	}
 
@@ -181,13 +173,10 @@ func handleWatchRun() {
 	}
 
 	log.Info("Starting file watcher...")
-	if config.EnableGitPull {
-		log.Info("Git pull enabled: checking every %v", config.GitPullInterval)
-	}
 
 	// Start the watcher
 	if err := gz.StartWatcher(config); err != nil {
-		log.Fatal("Failed to start watcher: %v", err)
+		log.Fatal("Failed to start watcher: ", err)
 	}
 
 	// Set up signal handling for graceful shutdown
