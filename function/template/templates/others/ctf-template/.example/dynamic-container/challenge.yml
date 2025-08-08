@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/dimasma0305/ctfify/refs/heads/master/function/template/templates/others/ctf-template/.gzctf/challenge.schema.yaml
+
+name: "test-1"
+author: "dynamic-container"
+description: |
+  Testing dynamic container
+
+type: "DynamicContainer"
+value: 1000
+
+provide: "./dist"
+
+container:
+  flagTemplate: "FLAG{ini_test_flag_[TEAM_HASH]}"
+  containerImage: "{{.slug}}:latest"
+  memoryLimit: 512
+  cpuCount: 3
+  storageLimit: 512
+  containerExposePort: 8011
+  enableTrafficCapture: false
+
+scripts:
+  start: cd src && docker build -t {{.slug}} .
