@@ -17,7 +17,7 @@ type Challenge struct {
 	AcceptedCount        int         `json:"acceptedCount" yaml:"acceptedCount"`
 	FileName             string      `json:"fileName" yaml:"fileName"`
 	Attachment           *Attachment `json:"attachment" yaml:"attachment"`
-	TestContainer        string      `json:"testContainer" yaml:"testContainer"`
+	TestContainer        interface{} `json:"testContainer" yaml:"testContainer"`
 	Flags                []Flag      `json:"flags" yaml:"flags"`
 	ContainerImage       string      `json:"containerImage" yaml:"containerImage"`
 	MemoryLimit          int         `json:"memoryLimit" yaml:"memoryLimit"`
