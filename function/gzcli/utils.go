@@ -284,10 +284,24 @@ func isConfigEdited(challengeConf *ChallengeYaml, challengeData *gzapi.Challenge
 }
 
 func mergeChallengeData(challengeConf *ChallengeYaml, challengeData *gzapi.Challenge) *gzapi.Challenge {
-	// Set defaults using bitwise OR to avoid branching
-	challengeData.MemoryLimit |= 128
-	challengeData.CpuCount |= 1
-	challengeData.StorageLimit |= 128
+	// Set resource limits from container configuration, with defaults if not specified
+	if challengeConf.Container.MemoryLimit > 0 {
+		challengeData.MemoryLimit = challengeConf.Container.MemoryLimit
+	} else {
+		challengeData.MemoryLimit = 128 // Default fallback
+	}
+
+	if challengeConf.Container.CpuCount > 0 {
+		challengeData.CpuCount = challengeConf.Container.CpuCount
+	} else {
+		challengeData.CpuCount = 1 // Default fallback
+	}
+
+	if challengeConf.Container.StorageLimit > 0 {
+		challengeData.StorageLimit = challengeConf.Container.StorageLimit
+	} else {
+		challengeData.StorageLimit = 128 // Default fallback
+	}
 
 	challengeData.Title = challengeConf.Name
 	challengeData.Category = challengeConf.Category
