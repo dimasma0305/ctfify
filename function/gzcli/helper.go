@@ -142,29 +142,63 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 
 	log.InfoH2("Starting sync for challenge: %s (Type: %s, Category: %s)", challengeConf.Name, challengeConf.Type, challengeConf.Category)
 
-	// Fetch fresh challenges list to prevent race conditions with parallel sync
-	freshChallenges, err := config.Event.GetChallenges()
-	if err != nil {
-		log.Error("Failed to get fresh challenges list for %s: %v", challengeConf.Name, err)
-		// Fallback to original challenges list if fresh fetch fails
-		freshChallenges = challenges
-	} else {
-		log.InfoH3("Fetched fresh challenges list for %s (%d challenges)", challengeConf.Name, len(freshChallenges))
-	}
-
-	if !isChallengeExist(challengeConf.Name, freshChallenges) {
-		log.InfoH2("Creating new challenge: %s", challengeConf.Name)
-		challengeData, err = config.Event.CreateChallenge(gzapi.CreateChallengeForm{
-			Title:    challengeConf.Name,
-			Category: challengeConf.Category,
-			Tag:      challengeConf.Category,
-			Type:     challengeConf.Type,
-		})
+	// Check existence using the original challenges list first to avoid unnecessary API calls
+	if !isChallengeExist(challengeConf.Name, challenges) {
+		// Double-check with fresh challenges list to prevent race conditions
+		// This check happens inside the mutex-protected section in the calling function
+		log.InfoH3("Challenge %s not found in initial list, fetching fresh challenges list", challengeConf.Name)
+		freshChallenges, err := config.Event.GetChallenges()
 		if err != nil {
-			log.Error("Failed to create challenge %s: %v", challengeConf.Name, err)
-			return fmt.Errorf("create challenge %s: %w", challengeConf.Name, err)
+			log.Error("Failed to get fresh challenges list for %s: %v", challengeConf.Name, err)
+			// Fallback to original challenges list if fresh fetch fails
+			freshChallenges = challenges
+		} else {
+			log.InfoH3("Fetched fresh challenges list for %s (%d challenges)", challengeConf.Name, len(freshChallenges))
 		}
-		log.InfoH2("Successfully created challenge: %s (ID: %d)", challengeConf.Name, challengeData.Id)
+
+		// Final check to prevent duplicates
+		if !isChallengeExist(challengeConf.Name, freshChallenges) {
+			log.InfoH2("Creating new challenge: %s", challengeConf.Name)
+			challengeData, err = config.Event.CreateChallenge(gzapi.CreateChallengeForm{
+				Title:    challengeConf.Name,
+				Category: challengeConf.Category,
+				Tag:      challengeConf.Category,
+				Type:     challengeConf.Type,
+			})
+			if err != nil {
+				// Check if this is a duplicate creation error (common with race conditions)
+				if strings.Contains(strings.ToLower(err.Error()), "already exists") ||
+					strings.Contains(strings.ToLower(err.Error()), "duplicate") ||
+					strings.Contains(strings.ToLower(err.Error()), "conflict") {
+					log.InfoH2("Challenge %s already exists (created by another process), fetching existing challenge", challengeConf.Name)
+					challengeData, err = config.Event.GetChallenge(challengeConf.Name)
+					if err != nil {
+						log.Error("Failed to get existing challenge %s after creation conflict: %v", challengeConf.Name, err)
+						return fmt.Errorf("get existing challenge %s: %w", challengeConf.Name, err)
+					}
+					challengeData.CS = api
+					log.InfoH3("Successfully fetched existing challenge %s after creation conflict", challengeConf.Name)
+				} else {
+					log.Error("Failed to create challenge %s: %v", challengeConf.Name, err)
+					return fmt.Errorf("create challenge %s: %w", challengeConf.Name, err)
+				}
+			} else {
+				challengeData.CS = api
+				log.InfoH2("Successfully created challenge: %s (ID: %d)", challengeConf.Name, challengeData.Id)
+			}
+		} else {
+			log.InfoH2("Challenge %s was created by another process, fetching existing challenge", challengeConf.Name)
+			// Challenge was created by another goroutine, fetch it
+			challengeData, err = config.Event.GetChallenge(challengeConf.Name)
+			if err != nil {
+				log.Error("Failed to get newly created challenge %s: %v", challengeConf.Name, err)
+				return fmt.Errorf("get challenge %s: %w", challengeConf.Name, err)
+			}
+			log.InfoH3("Successfully fetched existing challenge %s", challengeConf.Name)
+		}
+
+		// Ensure the API client is properly set for newly created/fetched challenges
+		challengeData.CS = api
 	} else {
 		log.InfoH2("Updating existing challenge: %s", challengeConf.Name)
 		if err = GetCache(challengeConf.Category+"/"+challengeConf.Name+"/challenge", &challengeData); err != nil {
