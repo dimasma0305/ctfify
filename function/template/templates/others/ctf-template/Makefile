@@ -31,98 +31,16 @@ gzcli-stop:
 	${SUDO} ${BIN} gzcli --run-script stop
 
 watch:
-	@if [ -f ${WATCHER_PID_FILE} ]; then \
-		PID=$$(cat ${WATCHER_PID_FILE}); \
-		if kill -0 $$PID 2>/dev/null; then \
-			echo "CTFify watcher is already running (PID: $$PID)"; \
-			echo "Use 'make watch-stop' to stop it first, or 'make watch-logs' to view logs"; \
-			exit 1; \
-		else \
-			echo "Removing stale CTFify PID file..."; \
-			rm -f ${WATCHER_PID_FILE}; \
-		fi \
-	fi
-	@if [ -f ${GITPULL_PID_FILE} ]; then \
-		PID=$$(cat ${GITPULL_PID_FILE}); \
-		if kill -0 $$PID 2>/dev/null; then \
-			echo "Git pull watcher is already running (PID: $$PID)"; \
-			echo "Use 'make watch-stop' to stop it first, or 'make watch-logs' to view logs"; \
-			exit 1; \
-		else \
-			echo "Removing stale git pull PID file..."; \
-			rm -f ${GITPULL_PID_FILE}; \
-		fi \
-	fi
-	@echo "Starting CTFify watcher and git pull watcher (every 30 seconds)..."
-	@nohup ${SUDO} ${BIN} gzcli --watch > ${WATCHER_LOG_FILE} 2>&1 & echo $$! > ${WATCHER_PID_FILE}
-	@nohup watch -n 30 'git pull origin main' >> ${WATCHER_LOG_FILE} 2>&1 & echo $$! > ${GITPULL_PID_FILE}
-	@echo "Watchers started in background:"
-	@echo "  CTFify watcher PID: $$(cat ${WATCHER_PID_FILE})"
-	@echo "  Git pull watcher PID: $$(cat ${GITPULL_PID_FILE})"
-	@echo "Logs: tail -f ${WATCHER_LOG_FILE}"
+	${SUDO} ${BIN} gzcli --watch --watch-git-pull --watch-git-pull-interval 30s --watch-git-repository .
 
 watch-stop:
-	@if [ -f ${WATCHER_PID_FILE} ]; then \
-		PID=$$(cat ${WATCHER_PID_FILE}); \
-		if kill -0 $$PID 2>/dev/null; then \
-			echo "Stopping CTFify watcher (PID: $$PID)..."; \
-			kill $$PID; \
-			rm -f ${WATCHER_PID_FILE}; \
-			echo "CTFify watcher stopped."; \
-		else \
-			echo "CTFify watcher process not running."; \
-			rm -f ${WATCHER_PID_FILE}; \
-		fi \
-	else \
-		echo "No CTFify watcher PID file found."; \
-	fi
-	@if [ -f ${GITPULL_PID_FILE} ]; then \
-		PID=$$(cat ${GITPULL_PID_FILE}); \
-		if kill -0 $$PID 2>/dev/null; then \
-			echo "Stopping git pull watcher (PID: $$PID)..."; \
-			kill $$PID; \
-			rm -f ${GITPULL_PID_FILE}; \
-			echo "Git pull watcher stopped."; \
-		else \
-			echo "Git pull watcher process not running."; \
-			rm -f ${GITPULL_PID_FILE}; \
-		fi \
-	else \
-		echo "No git pull watcher PID file found."; \
-	fi
+	${SUDO} ${BIN} gzcli --watch-stop
 
 watch-status:
-	@echo "Checking watcher status:"
-	@if [ -f ${WATCHER_PID_FILE} ]; then \
-		PID=$$(cat ${WATCHER_PID_FILE}); \
-		if kill -0 $$PID 2>/dev/null; then \
-			echo "  CTFify watcher is running (PID: $$PID)"; \
-		else \
-			echo "  CTFify watcher is not running (stale PID file)"; \
-			rm -f ${WATCHER_PID_FILE}; \
-		fi \
-	else \
-		echo "  CTFify watcher is not running"; \
-	fi
-	@if [ -f ${GITPULL_PID_FILE} ]; then \
-		PID=$$(cat ${GITPULL_PID_FILE}); \
-		if kill -0 $$PID 2>/dev/null; then \
-			echo "  Git pull watcher is running (PID: $$PID)"; \
-		else \
-			echo "  Git pull watcher is not running (stale PID file)"; \
-			rm -f ${GITPULL_PID_FILE}; \
-		fi \
-	else \
-		echo "  Git pull watcher is not running"; \
-	fi
-	@echo "Logs: tail -f ${WATCHER_LOG_FILE}"
+	${SUDO} ${BIN} gzcli --watch-status
 
 watch-logs:
-	@if [ -f ${WATCHER_LOG_FILE} ]; then \
-		tail -f ${WATCHER_LOG_FILE}; \
-	else \
-		echo "No watcher log file found. Start the watcher first with 'make watch'"; \
-	fi
+	${SUDO} ${BIN} gzcli --watch-logs
 
 register-all-user:
 	${SUDO} ${BIN} gzcli --create-teams ${CSV}

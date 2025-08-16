@@ -31,6 +31,10 @@ services:
         - "traefik.http.routers.http.rule=Host(`{{.PublicEntry}}`)"
         - "traefik.http.routers.http.entrypoints=web"
         - "traefik.http.routers.http.service=gzctf"
+         # Rate limit middleware
+        # - "traefik.http.middlewares.gzctf-ratelimit.ratelimit.average=100"
+        # - "traefik.http.middlewares.gzctf-ratelimit.ratelimit.burst=50"
+        # - "traefik.http.routers.gzctf.middlewares=gzctf-ratelimit"
   gzctf-bot:
     build: bot
     restart: always

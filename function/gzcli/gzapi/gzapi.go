@@ -1,7 +1,9 @@
 package gzapi
 
 import (
+	"crypto/tls"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/dimasma0305/ctfify/function/log"
@@ -23,7 +25,8 @@ func Init(url string, creds *Creds) (*GZAPI, error) {
 	url = strings.TrimRight(url, "/")
 	newGz := &GZAPI{
 		Client: req.C().
-			SetUserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0"),
+			SetUserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0").
+			SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}),
 		Url:   url,
 		Creds: creds,
 	}
@@ -37,7 +40,8 @@ func Register(url string, creds *RegisterForm) (*GZAPI, error) {
 	url = strings.TrimRight(url, "/")
 	newGz := &GZAPI{
 		Client: req.C().
-			SetUserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0"),
+			SetUserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0").
+			SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}),
 		Url: url,
 		Creds: &Creds{
 			Username: creds.Username,
@@ -132,6 +136,13 @@ func (cs *GZAPI) postMultiPart(url string, file string, data any) error {
 	url = cs.Url + url
 	log.InfoH3("Making POST multipart request to: %s with file: %s", url, file)
 
+	// Verify file exists before attempting upload
+	if _, err := os.Stat(file); err != nil {
+		log.Error("File does not exist: %s", file)
+		return fmt.Errorf("file not found: %s", file)
+	}
+
+	// Use "files" for /api/assets endpoint as per API specification
 	req, err := cs.Client.R().SetFile("files", file).Post(url)
 	if err != nil {
 		log.Error("POST multipart request failed for %s: %v", url, err)
@@ -158,6 +169,13 @@ func (cs *GZAPI) putMultiPart(url string, file string, data any) error {
 	url = cs.Url + url
 	log.InfoH3("Making PUT multipart request to: %s with file: %s", url, file)
 
+	// Verify file exists before attempting upload
+	if _, err := os.Stat(file); err != nil {
+		log.Error("File does not exist: %s", file)
+		return fmt.Errorf("file not found: %s", file)
+	}
+
+	// Use "file" for PUT operations (poster/avatar uploads) as per API specification
 	req, err := cs.Client.R().SetFile("file", file).Put(url)
 	if err != nil {
 		log.Error("PUT multipart request failed for %s: %v", url, err)

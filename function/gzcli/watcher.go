@@ -2,16 +2,24 @@ package gzcli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
 	"github.com/dimasma0305/ctfify/function/log"
 	"github.com/fsnotify/fsnotify"
+	"github.com/go-git/go-git/v5"
+	tail "github.com/hpcloud/tail"
+	"github.com/sevlyar/go-daemon"
 )
 
 type Watcher struct {
@@ -31,6 +39,7 @@ type Watcher struct {
 	updatingMu         sync.RWMutex
 	watchedChallenges  map[string]bool // challengeName -> is being watched
 	watchedMu          sync.RWMutex
+	daemonContext      *daemon.Context // Daemon context for process management
 }
 
 type WatcherConfig struct {
@@ -39,6 +48,12 @@ type WatcherConfig struct {
 	IgnorePatterns            []string
 	WatchPatterns             []string
 	NewChallengeCheckInterval time.Duration // New field for checking new challenges
+	DaemonMode                bool          // Run watcher as daemon
+	PidFile                   string        // PID file location
+	LogFile                   string        // Log file location
+	GitPullEnabled            bool          // Enable automatic git pull
+	GitPullInterval           time.Duration // Interval for git pull (default: 1 minute)
+	GitRepository             string        // Git repository path (default: current directory)
 }
 
 var DefaultWatcherConfig = WatcherConfig{
@@ -47,6 +62,12 @@ var DefaultWatcherConfig = WatcherConfig{
 	IgnorePatterns:            []string{},       // No ignore patterns
 	WatchPatterns:             []string{},       // Empty means watch all files
 	NewChallengeCheckInterval: 10 * time.Second, // Check for new challenges every 10 seconds
+	DaemonMode:                true,             // Default to daemon mode
+	PidFile:                   "/tmp/gzctf-watcher.pid",
+	LogFile:                   "/tmp/gzctf-watcher.log",
+	GitPullEnabled:            true,            // Enable git pull by default
+	GitPullInterval:           1 * time.Minute, // Pull every minute
+	GitRepository:             ".",             // Current directory
 }
 
 // getChallengeUpdateMutex gets or creates a mutex for a specific challenge
@@ -105,8 +126,81 @@ func (w *Watcher) Start(config WatcherConfig) error {
 		log.Info("NewChallengeCheckInterval was zero or negative, using default: %v", w.config.NewChallengeCheckInterval)
 	}
 
-	log.Info("Starting file watcher...")
+	// Set default paths if not provided
+	if w.config.PidFile == "" {
+		w.config.PidFile = DefaultWatcherConfig.PidFile
+	}
+	if w.config.LogFile == "" {
+		w.config.LogFile = DefaultWatcherConfig.LogFile
+	}
 
+	if w.config.DaemonMode {
+		log.Info("Starting file watcher in DAEMON mode...")
+		return w.startAsDaemon()
+	}
+
+	log.Info("Starting file watcher in foreground mode...")
+	return w.startWatcher()
+}
+
+// startAsDaemon starts the watcher as a daemon process
+func (w *Watcher) startAsDaemon() error {
+	// Create daemon context
+	w.daemonContext = &daemon.Context{
+		PidFileName: w.config.PidFile,
+		PidFilePerm: 0644,
+		LogFileName: w.config.LogFile,
+		LogFilePerm: 0640,
+		WorkDir:     "./",
+		Umask:       027,
+		Args:        nil, // Don't override command args - let daemon handle it
+	}
+
+	// Check if we're already in the daemon process
+	if daemon.WasReborn() {
+		// This is the child daemon process
+		pid := os.Getpid()
+		log.Info("🚀 GZCTF Watcher daemon started (PID: %d)", pid)
+		log.Info("📄 PID file: %s", w.config.PidFile)
+		log.Info("📝 Log file: %s", w.config.LogFile)
+
+		// Manually write PID file since go-daemon might not be doing it correctly
+		if err := w.writePIDFile(w.config.PidFile, pid); err != nil {
+			log.Error("Failed to write PID file: %v", err)
+			return fmt.Errorf("failed to write PID file: %w", err)
+		}
+
+		// Start the actual watcher and keep it running
+		if err := w.startWatcher(); err != nil {
+			return err
+		}
+		// Keep daemon running until context is cancelled
+		<-w.ctx.Done()
+		return nil
+	}
+
+	// This is the parent process - fork the daemon
+	child, err := w.daemonContext.Reborn()
+	if err != nil {
+		return fmt.Errorf("failed to fork daemon: %w", err)
+	}
+
+	if child != nil {
+		// Parent process - daemon started successfully
+		log.Info("✅ GZCTF Watcher daemon started successfully")
+		log.Info("📄 PID: %d (saved to %s)", child.Pid, w.config.PidFile)
+		log.Info("📝 Logs: %s", w.config.LogFile)
+		log.Info("🔧 Use 'gzcli --watch-status' to check status")
+		log.Info("🛑 Use daemon control methods to stop")
+		return nil
+	}
+
+	// This should not be reached
+	return fmt.Errorf("unexpected daemon state")
+}
+
+// startWatcher starts the actual watcher functionality
+func (w *Watcher) startWatcher() error {
 	// Get challenges and add them to watch
 	challenges, err := w.getChallenges()
 	if err != nil {
@@ -124,7 +218,7 @@ func (w *Watcher) Start(config WatcherConfig) error {
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		w.watchLoop(config)
+		w.watchLoop(w.config)
 	}()
 
 	// Start new challenge checking routine
@@ -135,7 +229,19 @@ func (w *Watcher) Start(config WatcherConfig) error {
 		w.newChallengeCheckLoop(w.config)
 	}()
 
+	// Start git pull routine if enabled
+	if w.config.GitPullEnabled {
+		log.Info("Git pull enabled, pulling every %v from %s", w.config.GitPullInterval, w.config.GitRepository)
+		w.wg.Add(1)
+		go func() {
+			defer w.wg.Done()
+			w.gitPullLoop(w.config)
+		}()
+	}
+
+	log.Info("📁 Watching %d challenges", len(challenges))
 	log.Info("File watcher started successfully")
+
 	return nil
 }
 
@@ -908,4 +1014,393 @@ func (w *Watcher) isInChallengeCategory(filePath string) bool {
 	}
 
 	return false
+}
+
+// GetDaemonStatus returns the status of the daemon watcher
+func (w *Watcher) GetDaemonStatus(pidFile string) map[string]interface{} {
+	if pidFile == "" {
+		pidFile = DefaultWatcherConfig.PidFile
+	}
+
+	status := map[string]interface{}{
+		"daemon":   false,
+		"pid_file": pidFile,
+	}
+
+	// Check if PID file exists
+	pidData, err := os.ReadFile(pidFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			status["status"] = "stopped"
+			status["message"] = "PID file not found"
+		} else {
+			status["status"] = "error"
+			status["message"] = fmt.Sprintf("Failed to read PID file: %v", err)
+		}
+		return status
+	}
+
+	var pid int
+	pidStr := strings.TrimSpace(string(pidData))
+	if pidStr == "" {
+		status["status"] = "error"
+		status["message"] = "PID file is empty"
+		return status
+	}
+
+	if _, err := fmt.Sscanf(pidStr, "%d", &pid); err != nil {
+		status["status"] = "error"
+		status["message"] = fmt.Sprintf("Invalid PID in file: %v", err)
+		return status
+	}
+
+	status["pid"] = pid
+
+	// Check if process is running
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		status["status"] = "error"
+		status["message"] = fmt.Sprintf("Failed to find process: %v", err)
+		return status
+	}
+
+	// Send signal 0 to check if process exists
+	if err := process.Signal(syscall.Signal(0)); err != nil {
+		status["daemon"] = false
+		status["status"] = "dead"
+		status["message"] = "Process not running (stale PID file)"
+		// Clean up stale PID file
+		if removeErr := os.Remove(pidFile); removeErr != nil && !os.IsNotExist(removeErr) {
+			status["message"] = fmt.Sprintf("Process not running, failed to clean stale PID file: %v", removeErr)
+		} else {
+			status["message"] = "Process not running (cleaned up stale PID file)"
+		}
+		return status
+	}
+
+	status["daemon"] = true
+	status["status"] = "running"
+	status["message"] = "Daemon is running"
+	return status
+}
+
+// StopDaemon stops the daemon watcher
+func (w *Watcher) StopDaemon(pidFile string) error {
+	if pidFile == "" {
+		pidFile = DefaultWatcherConfig.PidFile
+	}
+
+	// Read PID from file
+	pidData, err := os.ReadFile(pidFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("daemon is not running (PID file not found)")
+		}
+		return fmt.Errorf("failed to read PID file: %w", err)
+	}
+
+	var pid int
+	pidStr := strings.TrimSpace(string(pidData))
+	if pidStr == "" {
+		return fmt.Errorf("PID file is empty")
+	}
+
+	if _, err := fmt.Sscanf(pidStr, "%d", &pid); err != nil {
+		return fmt.Errorf("invalid PID in file: %w", err)
+	}
+
+	// Find the process
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("failed to find process: %w", err)
+	}
+
+	// Send SIGTERM first
+	if err := process.Signal(syscall.SIGTERM); err != nil {
+		return fmt.Errorf("failed to send SIGTERM to process %d: %w", pid, err)
+	}
+
+	// Wait a bit for graceful shutdown
+	time.Sleep(2 * time.Second)
+
+	// Check if process is still running
+	if err := process.Signal(syscall.Signal(0)); err == nil {
+		// Process is still running, send SIGKILL
+		log.Info("Process still running, sending SIGKILL...")
+		if err := process.Kill(); err != nil {
+			return fmt.Errorf("failed to kill process %d: %w", pid, err)
+		}
+	}
+
+	// Clean up PID file
+	if err := os.Remove(pidFile); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove PID file: %w", err)
+	}
+
+	log.Info("✅ GZCTF Watcher daemon stopped successfully")
+	return nil
+}
+
+// ShowStatus displays the watcher status
+func (w *Watcher) ShowStatus(pidFile, logFile string, jsonOutput bool) error {
+	if pidFile == "" {
+		pidFile = DefaultWatcherConfig.PidFile
+	}
+	if logFile == "" {
+		logFile = DefaultWatcherConfig.LogFile
+	}
+
+	daemonStatus := w.GetDaemonStatus(pidFile)
+	isDaemon := daemonStatus["daemon"].(bool)
+	daemonState := daemonStatus["status"].(string)
+
+	log.Info("🔍 GZCTF Watcher Status")
+	log.Info("==========================================")
+
+	if isDaemon && daemonState == "running" {
+		log.Info("🟢 Status: RUNNING (Daemon Mode)")
+		if pid, ok := daemonStatus["pid"]; ok {
+			log.Info("📄 Process ID: %v", pid)
+		}
+		log.Info("📄 PID File: %s", pidFile)
+		log.Info("📝 Log File: %s", logFile)
+
+		// For running daemon, try to get challenge info from status
+		log.Info("")
+		log.Info("📁 Configuration:")
+		log.Info("   - Daemon Mode: Enabled")
+		log.Info("   - PID File: %s", pidFile)
+		log.Info("   - Log File: %s", logFile)
+		log.Info("   - Git Pull: %v", DefaultWatcherConfig.GitPullEnabled)
+		if DefaultWatcherConfig.GitPullEnabled {
+			log.Info("   - Git Pull Interval: %v", DefaultWatcherConfig.GitPullInterval)
+			log.Info("   - Git Repository: %s", DefaultWatcherConfig.GitRepository)
+		}
+
+		// Show recent log entries if available
+		w.showRecentLogs(logFile)
+
+	} else if daemonState == "dead" {
+		log.Info("🟡 Status: STOPPED (Stale PID file found)")
+		log.Info("💬 A previous daemon process was running but is no longer active")
+		log.Info("📄 Stale PID File: %s", pidFile)
+		log.Info("🔧 Suggestion: Run 'gzcli --watch' to start a new daemon")
+
+	} else if daemonState == "stopped" {
+		log.Info("⚫ Status: NOT RUNNING")
+		log.Info("💬 No daemon is currently running")
+		log.Info("📄 PID File: %s (not found)", pidFile)
+		log.Info("🔧 Suggestion: Run 'gzcli --watch' to start the daemon")
+
+	} else {
+		log.Info("🔴 Status: ERROR")
+		if msg, ok := daemonStatus["message"]; ok {
+			log.Info("💬 %s", msg)
+		}
+		log.Info("📄 PID File: %s", pidFile)
+	}
+
+	log.Info("")
+	log.Info("🛠️  Available Commands:")
+	log.Info("   - Start daemon: gzcli --watch")
+	log.Info("   - Stop daemon:  gzcli --watch-stop")
+	log.Info("   - Run foreground: gzcli --watch --watch-foreground")
+
+	// Output JSON format if requested
+	if jsonOutput {
+		return w.outputStatusJSON(daemonStatus, pidFile, logFile, isDaemon, daemonState)
+	}
+
+	return nil
+}
+
+// outputStatusJSON outputs status in JSON format
+func (w *Watcher) outputStatusJSON(daemonStatus map[string]interface{}, pidFile, logFile string, isDaemon bool, daemonState string) error {
+	// Create a cleaner status object for JSON
+	jsonStatus := map[string]interface{}{
+		"daemon_running": isDaemon && daemonState == "running",
+		"status":         daemonState,
+		"pid_file":       pidFile,
+		"log_file":       logFile,
+	}
+
+	if isDaemon && daemonState == "running" {
+		if pid, ok := daemonStatus["pid"]; ok {
+			jsonStatus["pid"] = pid
+		}
+	}
+
+	if msg, ok := daemonStatus["message"]; ok {
+		jsonStatus["message"] = msg
+	}
+
+	log.Info("")
+	jsonData, err := json.MarshalIndent(jsonStatus, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal status to JSON: %w", err)
+	}
+	fmt.Println(string(jsonData))
+	return nil
+}
+
+// showRecentLogs displays recent log entries if the log file exists
+func (w *Watcher) showRecentLogs(logFile string) {
+	if _, err := os.Stat(logFile); err != nil {
+		return // Log file doesn't exist
+	}
+
+	log.Info("")
+	log.Info("📋 Recent Activity (last 5 lines from log):")
+
+	// Use tail command to get last few lines
+	cmd := exec.Command("tail", "-n", "5", logFile)
+	output, err := cmd.Output()
+	if err != nil {
+		log.Info("   (Unable to read log file)")
+		return
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			log.Info("   %s", strings.TrimSpace(line))
+		}
+	}
+}
+
+// writePIDFile writes the PID to the specified file
+func (w *Watcher) writePIDFile(pidFile string, pid int) error {
+	// Create directory if it doesn't exist
+	dir := filepath.Dir(pidFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create PID file directory: %w", err)
+	}
+
+	// Write PID to file
+	pidStr := fmt.Sprintf("%d\n", pid)
+	if err := os.WriteFile(pidFile, []byte(pidStr), 0644); err != nil {
+		return fmt.Errorf("failed to write PID file: %w", err)
+	}
+
+	log.Info("✅ PID file written successfully: %s", pidFile)
+	return nil
+}
+
+// gitPullLoop periodically pulls from git repository
+func (w *Watcher) gitPullLoop(config WatcherConfig) {
+	// Additional safeguard against zero duration
+	interval := config.GitPullInterval
+	if interval <= 0 {
+		interval = DefaultWatcherConfig.GitPullInterval
+		log.Error("GitPullInterval was zero or negative in loop, using default: %v", interval)
+	}
+
+	// Initial pull on startup
+	log.Info("🔄 Performing initial git pull...")
+	if err := w.performGitPull(config.GitRepository); err != nil {
+		log.Error("Initial git pull failed: %v", err)
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-w.ctx.Done():
+			log.Info("Git pull loop stopped")
+			return
+		case <-ticker.C:
+			if err := w.performGitPull(config.GitRepository); err != nil {
+				log.Error("Git pull failed: %v", err)
+			}
+		}
+	}
+}
+
+// performGitPull performs a git pull operation on the specified repository
+func (w *Watcher) performGitPull(repoPath string) error {
+	log.InfoH3("🔄 Pulling latest changes from git repository: %s", repoPath)
+
+	// Open the repository
+	repo, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to open git repository at %s: %w", repoPath, err)
+	}
+
+	// Get the working directory
+	workTree, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	// Perform the pull
+	pullOptions := &git.PullOptions{
+		RemoteName: "origin",
+	}
+
+	err = workTree.Pull(pullOptions)
+	if err != nil {
+		// Check if it's "already up-to-date" error
+		if err == git.NoErrAlreadyUpToDate {
+			log.InfoH3("📄 Repository is already up-to-date")
+			return nil
+		}
+		return fmt.Errorf("git pull failed: %w", err)
+	}
+
+	log.InfoH3("✅ Git pull completed successfully")
+
+	// After successful pull, check for new challenges
+	log.InfoH3("🔍 Checking for new challenges after git pull...")
+	w.checkForNewChallenges()
+
+	return nil
+}
+
+// FollowLogs follows a log file and displays new content in real-time
+func (w *Watcher) FollowLogs(logFile string) error {
+	// Set up signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Tail the log file with re-open and follow options to handle rotations
+	t, err := tail.TailFile(logFile, tail.Config{
+		ReOpen:    true,
+		Follow:    true,
+		MustExist: false,
+		Poll:      true,
+		Location:  &tail.SeekInfo{Offset: 0, Whence: io.SeekEnd},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to tail log file: %w", err)
+	}
+	defer t.Cleanup()
+
+	// Print a header and the last few lines for context
+	w.showRecentLogs(logFile)
+	fmt.Println()
+
+	for {
+		select {
+		case <-sigChan:
+			fmt.Println("\n📋 Log following stopped.")
+			return nil
+		case line, ok := <-t.Lines:
+			if !ok {
+				return fmt.Errorf("log tail channel closed")
+			}
+			if line == nil {
+				continue
+			}
+			text := line.Text
+			if strings.TrimSpace(text) == "" {
+				continue
+			}
+			if strings.Contains(text, "[x]") || strings.Contains(text, "INFO") || strings.Contains(text, "ERROR") {
+				fmt.Println(text)
+			} else {
+				fmt.Printf("[%s] %s\n", time.Now().Format("15:04:05"), text)
+			}
+		}
+	}
 }
