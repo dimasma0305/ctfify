@@ -1027,30 +1027,15 @@ func (w *Watcher) GetDaemonStatus(pidFile string) map[string]interface{} {
 		"pid_file": pidFile,
 	}
 
-	// Check if PID file exists
-	pidData, err := os.ReadFile(pidFile)
+	pid, err := readPIDFromFile(pidFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			status["status"] = "stopped"
 			status["message"] = "PID file not found"
 		} else {
 			status["status"] = "error"
-			status["message"] = fmt.Sprintf("Failed to read PID file: %v", err)
+			status["message"] = err.Error()
 		}
-		return status
-	}
-
-	var pid int
-	pidStr := strings.TrimSpace(string(pidData))
-	if pidStr == "" {
-		status["status"] = "error"
-		status["message"] = "PID file is empty"
-		return status
-	}
-
-	if _, err := fmt.Sscanf(pidStr, "%d", &pid); err != nil {
-		status["status"] = "error"
-		status["message"] = fmt.Sprintf("Invalid PID in file: %v", err)
 		return status
 	}
 
@@ -1091,22 +1076,12 @@ func (w *Watcher) StopDaemon(pidFile string) error {
 	}
 
 	// Read PID from file
-	pidData, err := os.ReadFile(pidFile)
+	pid, err := readPIDFromFile(pidFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("daemon is not running (PID file not found)")
 		}
-		return fmt.Errorf("failed to read PID file: %w", err)
-	}
-
-	var pid int
-	pidStr := strings.TrimSpace(string(pidData))
-	if pidStr == "" {
-		return fmt.Errorf("PID file is empty")
-	}
-
-	if _, err := fmt.Sscanf(pidStr, "%d", &pid); err != nil {
-		return fmt.Errorf("invalid PID in file: %w", err)
+		return err
 	}
 
 	// Find the process
@@ -1286,6 +1261,24 @@ func (w *Watcher) writePIDFile(pidFile string, pid int) error {
 	return nil
 }
 
+// readPIDFromFile reads a PID integer from the given pid file.
+// Returns os.ErrNotExist if the file does not exist, or a formatted error for invalid/empty PID content.
+func readPIDFromFile(pidFile string) (int, error) {
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return 0, err
+	}
+	pidStr := strings.TrimSpace(string(data))
+	if pidStr == "" {
+		return 0, fmt.Errorf("PID file is empty")
+	}
+	var pid int
+	if _, err := fmt.Sscanf(pidStr, "%d", &pid); err != nil {
+		return 0, fmt.Errorf("invalid PID in file: %w", err)
+	}
+	return pid, nil
+}
+
 // gitPullLoop periodically pulls from git repository
 func (w *Watcher) gitPullLoop(config WatcherConfig) {
 	// Additional safeguard against zero duration
@@ -1322,9 +1315,18 @@ func (w *Watcher) performGitPull(repoPath string) error {
 	log.InfoH3("🔄 Pulling latest changes from git repository: %s", repoPath)
 
 	// Open the repository
-	repo, err := git.PlainOpen(repoPath)
+	repo, err := git.PlainOpenWithOptions(repoPath, &git.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {
-		return fmt.Errorf("failed to open git repository at %s: %w", repoPath, err)
+		// Attempt to detect the repository root when invoked from a subdirectory
+		if root, findErr := findGitRepoRoot(repoPath); findErr == nil {
+			log.Info("Detected git repository root at: %s", root)
+			repo, err = git.PlainOpen(root)
+			if err != nil {
+				return fmt.Errorf("failed to open detected git repository at %s: %w", root, err)
+			}
+		} else {
+			return fmt.Errorf("failed to open git repository at %s: %w", repoPath, err)
+		}
 	}
 
 	// Get the working directory
@@ -1355,6 +1357,28 @@ func (w *Watcher) performGitPull(repoPath string) error {
 	w.checkForNewChallenges()
 
 	return nil
+}
+
+// findGitRepoRoot walks up from startPath to find a directory containing a .git folder
+func findGitRepoRoot(startPath string) (string, error) {
+	absPath, err := filepath.Abs(startPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve absolute path for %s: %w", startPath, err)
+	}
+
+	current := absPath
+	for {
+		gitDir := filepath.Join(current, ".git")
+		if info, statErr := os.Stat(gitDir); statErr == nil && info.IsDir() {
+			return current, nil
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", fmt.Errorf("no .git directory found from %s up to filesystem root", absPath)
+		}
+		current = parent
+	}
 }
 
 // FollowLogs follows a log file and displays new content in real-time
