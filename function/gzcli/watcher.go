@@ -387,9 +387,9 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 func (w *Watcher) handleFileRemoval(path string) {
 	log.InfoH2("Processing file removal: %s", path)
 
-	// If a challenge.yml is removed, infer which challenge it belonged to by path prefix
+	// If a challenge.yml or challenge.yaml is removed, infer which challenge it belonged to by path prefix
 	base := filepath.Base(path)
-	if base == "challenge.yml" {
+	if base == "challenge.yml" || base == "challenge.yaml" {
 		// The parent directory represents the challenge cwd
 		dir := filepath.Dir(path)
 		// Clear watch state so recreation is detected later
@@ -424,9 +424,10 @@ func (w *Watcher) handleChallengeRemovalByDir(removedDir string) {
 	for _, ch := range challenges {
 		absCwd, _ := filepath.Abs(ch.Cwd)
 		if strings.HasPrefix(absCwd, absRemoved) || strings.HasPrefix(absRemoved, absCwd) {
-			// Confirm challenge directory no longer exists or challenge.yml missing
+			// Confirm challenge directory no longer exists or challenge.yml/.yaml missing
 			chalYml := filepath.Join(ch.Cwd, "challenge.yml")
-			if _, err := os.Stat(absCwd); os.IsNotExist(err) || os.IsNotExist(fileStat(chalYml)) {
+			chalYaml := filepath.Join(ch.Cwd, "challenge.yaml")
+			if _, err := os.Stat(absCwd); os.IsNotExist(err) || (os.IsNotExist(fileStat(chalYml)) && os.IsNotExist(fileStat(chalYaml))) {
 				log.InfoH2("🗑️ Detected removal of challenge '%s' (cwd: %s)", ch.Name, ch.Cwd)
 				go w.undeployAndRemoveChallenge(ch)
 				found = true
@@ -659,14 +660,9 @@ func (w *Watcher) determineUpdateType(filePath string, challenge ChallengeYaml) 
 		return UpdateNone
 	}
 
-	// Ignore dist.zip in the root of the challenge directory
-	if filepath.Base(relPath) == "dist.zip" {
-		log.InfoH3("Root dist.zip changed, ignoring event")
-		return UpdateNone
-	}
-
-	// Check if it's challenge.yml - metadata update only
-	if filepath.Base(relPath) == "challenge.yml" {
+	// Check if it's challenge.yml or challenge.yaml - metadata update only
+	base := filepath.Base(relPath)
+	if base == "challenge.yml" || base == "challenge.yaml" {
 		log.InfoH3("Challenge configuration file changed, updating metadata and attachment")
 		return UpdateMetadata
 	}
