@@ -1339,37 +1339,20 @@ func (w *Watcher) performGitPull(repoPath string) error {
 		return fmt.Errorf("failed to get worktree: %w", err)
 	}
 
+	// If there are local changes, skip pulling to avoid overwriting user work
+	status, statusErr := workTree.Status()
+	if statusErr != nil {
+		return fmt.Errorf("failed to read worktree status: %w", statusErr)
+	}
+	if !status.IsClean() {
+		log.InfoH3("⏭️ Skipping git pull: local changes detected. Commit or stash to enable pull.")
+		return nil
+	}
+
 	// Prepare authentication if needed (SSH or HTTPS)
 	auth, authErr := prepareGitAuth(repo)
 	if authErr != nil {
 		return fmt.Errorf("failed to prepare git authentication: %w", authErr)
-	}
-
-	// Determine repo root path for shell git operations (stash handling)
-	repoRoot := repoPath
-	if root, rootErr := findGitRepoRoot(repoPath); rootErr == nil {
-		repoRoot = root
-	}
-
-	// If worktree is dirty, attempt to auto-stash before pulling
-	status, statusErr := workTree.Status()
-	if statusErr != nil {
-		log.Error("Failed to read worktree status: %v", statusErr)
-	}
-	isDirty := statusErr == nil && !status.IsClean()
-	didStash := false
-	if isDirty {
-		log.InfoH3("📦 Uncommitted changes detected. Stashing before pull to avoid conflicts...")
-		if out, err := runGitCommand(repoRoot, "stash", "push", "-u", "-m", fmt.Sprintf("gzcli auto-stash %d", time.Now().Unix())); err != nil {
-			// If no changes to save, proceed
-			lower := strings.ToLower(out)
-			if !strings.Contains(lower, "no local changes to save") && !strings.Contains(lower, "no changes added to commit") {
-				log.Error("git stash failed: %s", out)
-				return fmt.Errorf("git stash failed: %w", err)
-			}
-		} else {
-			didStash = true
-		}
 	}
 
 	// Perform the pull
@@ -1383,50 +1366,18 @@ func (w *Watcher) performGitPull(repoPath string) error {
 		// Check if it's "already up-to-date" error
 		if err == git.NoErrAlreadyUpToDate {
 			log.InfoH3("📄 Repository is already up-to-date")
-			// If we stashed earlier, try to restore
-			if didStash {
-				if out, popErr := runGitCommand(repoRoot, "stash", "pop", "--index"); popErr != nil {
-					log.Error("Failed to pop stash after up-to-date pull: %s", out)
-					return fmt.Errorf("failed to pop stash: %w", popErr)
-				}
-			}
 			return nil
-		}
-		// On pull failure, try to restore stash before returning error
-		if didStash {
-			if out, popErr := runGitCommand(repoRoot, "stash", "pop", "--index"); popErr != nil {
-				log.Error("Failed to pop stash after pull error: %s", out)
-			}
 		}
 		return fmt.Errorf("git pull failed: %w", err)
 	}
 
 	log.InfoH3("✅ Git pull completed successfully")
 
-	// After pull, try to restore stashed changes
-	if didStash {
-		log.InfoH3("📦 Restoring stashed changes...")
-		if out, popErr := runGitCommand(repoRoot, "stash", "pop", "--index"); popErr != nil {
-			// If there is nothing to pop, ignore; otherwise, report
-			if !strings.Contains(strings.ToLower(out), "no stash entries found") {
-				return fmt.Errorf("failed to pop stash: %w", popErr)
-			}
-		}
-	}
-
 	// After successful pull, check for new challenges
 	log.InfoH3("🔍 Checking for new challenges after git pull...")
 	w.checkForNewChallenges()
 
 	return nil
-}
-
-// runGitCommand executes a git command in the given repository root and returns combined output
-func runGitCommand(repoRoot string, args ...string) (string, error) {
-	fullArgs := append([]string{"-C", repoRoot}, args...)
-	cmd := exec.Command("git", fullArgs...)
-	output, err := cmd.CombinedOutput()
-	return string(output), err
 }
 
 // findGitRepoRoot walks up from startPath to find a directory containing a .git folder
