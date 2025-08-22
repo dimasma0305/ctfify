@@ -663,65 +663,6 @@ func (w *Watcher) findChallengeForFile(filePath string) (*ChallengeYaml, error) 
 	return nil, nil
 }
 
-// redeployChallenge redeploys a specific challenge
-func (w *Watcher) redeployChallenge(challenge ChallengeYaml) error {
-	log.InfoH2("Starting redeployment of challenge: %s", challenge.Name)
-
-	// Run pre-deploy script if exists
-	if _, exists := challenge.Scripts["predeploy"]; exists {
-		log.InfoH3("Running predeploy script for %s", challenge.Name)
-		if err := runScript(challenge, "predeploy"); err != nil {
-			log.Error("Predeploy script failed for %s: %v", challenge.Name, err)
-			// Continue anyway
-		}
-	}
-
-	// Run build script if exists
-	if _, exists := challenge.Scripts["build"]; exists {
-		log.InfoH3("Running build script for %s", challenge.Name)
-		if err := runScript(challenge, "build"); err != nil {
-			return fmt.Errorf("build script failed: %w", err)
-		}
-	}
-
-	// Sync the challenge with the API
-	config, err := GetConfig(w.gz.api)
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
-
-	// Ensure the API client is properly set
-	config.Event.CS = w.gz.api
-
-	challenges, err := config.Event.GetChallenges()
-	if err != nil {
-		return fmt.Errorf("failed to get API challenges: %w", err)
-	}
-
-	if err := syncChallenge(config, challenge, challenges, w.gz.api); err != nil {
-		return fmt.Errorf("failed to sync challenge: %w", err)
-	}
-
-	// Run deploy script if exists
-	if _, exists := challenge.Scripts["deploy"]; exists {
-		log.InfoH3("Running deploy script for %s", challenge.Name)
-		if err := runScript(challenge, "deploy"); err != nil {
-			return fmt.Errorf("deploy script failed: %w", err)
-		}
-	}
-
-	// Run postdeploy script if exists
-	if _, exists := challenge.Scripts["postdeploy"]; exists {
-		log.InfoH3("Running postdeploy script for %s", challenge.Name)
-		if err := runScript(challenge, "postdeploy"); err != nil {
-			log.Error("Postdeploy script failed for %s: %v", challenge.Name, err)
-			// Continue anyway
-		}
-	}
-
-	return nil
-}
-
 // getChallenges gets the list of challenges to watch
 func (w *Watcher) getChallenges() ([]ChallengeYaml, error) {
 	appSettings, err := getAppSettings()
@@ -952,6 +893,7 @@ func (w *Watcher) checkAndAddNewChallenges(challenges []ChallengeYaml) {
 		// Sync the new challenge to GZCTF platform
 		log.InfoH3("🔄 Syncing new challenge to GZCTF platform: %s", challenge.Name)
 		go w.syncNewChallenge(challenge)
+		go w.fullRedeployChallenge(challenge)
 	}
 
 	if len(newChallenges) == 0 {
