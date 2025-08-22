@@ -349,15 +349,12 @@ func (w *Watcher) watchLoop(config WatcherConfig) {
 					timer.Stop()
 				}
 
+				// Copy event to avoid closure capturing issues
+				ev := event
 				w.debounceTimers[event.Name] = time.AfterFunc(config.DebounceTime, func() {
-					// Check if file still exists before processing
-					if _, err := os.Stat(event.Name); err == nil {
-						w.handleFileChange(event.Name)
-					} else {
-						log.DebugH3("Skipping file change for non-existent file: %s", event.Name)
-					}
+					w.handleEvent(ev)
 					w.debounceTimersMu.Lock()
-					delete(w.debounceTimers, event.Name)
+					delete(w.debounceTimers, ev.Name)
 					w.debounceTimersMu.Unlock()
 				})
 				w.debounceTimersMu.Unlock()
@@ -372,10 +369,182 @@ func (w *Watcher) watchLoop(config WatcherConfig) {
 	}
 }
 
+// handleEvent routes fsnotify events to change or removal handlers
+func (w *Watcher) handleEvent(event fsnotify.Event) {
+	// On Remove or Rename, handle potential deletion
+	if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+		w.handleFileRemoval(event.Name)
+		return
+	}
+	// For Create/Write, proceed with normal change handling if the file exists
+	if _, err := os.Stat(event.Name); err == nil {
+		w.handleFileChange(event.Name)
+	} else {
+		log.DebugH3("Skipping change handling, file not found: %s", event.Name)
+	}
+}
+
+// handleFileRemoval handles file or directory removals that may indicate a challenge deletion
+func (w *Watcher) handleFileRemoval(path string) {
+	log.InfoH2("Processing file removal: %s", path)
+
+	// If a challenge.yml is removed, infer which challenge it belonged to by path prefix
+	base := filepath.Base(path)
+	if base == "challenge.yml" {
+		// The parent directory represents the challenge cwd
+		dir := filepath.Dir(path)
+		w.handleChallengeRemovalByDir(dir)
+		return
+	}
+
+	// If a whole directory was renamed/removed, try to find any watched challenge under that path
+	info, err := os.Stat(path)
+	if err != nil && os.IsNotExist(err) {
+		// Path no longer exists: check if any challenge cwd had this as prefix
+		w.handleChallengeRemovalByDir(path)
+		return
+	}
+	if err == nil && info.IsDir() {
+		w.handleChallengeRemovalByDir(path)
+	}
+}
+
+// handleChallengeRemovalByDir determines if a watched challenge lives under removedDir and undeploys+removes it
+func (w *Watcher) handleChallengeRemovalByDir(removedDir string) {
+	challenges, err := w.getChallenges()
+	if err != nil {
+		log.Error("Failed to get challenges while handling removal: %v", err)
+		return
+	}
+	absRemoved, _ := filepath.Abs(removedDir)
+	found := false
+	for _, ch := range challenges {
+		absCwd, _ := filepath.Abs(ch.Cwd)
+		if strings.HasPrefix(absCwd, absRemoved) || strings.HasPrefix(absRemoved, absCwd) {
+			// Confirm challenge directory no longer exists or challenge.yml missing
+			chalYml := filepath.Join(ch.Cwd, "challenge.yml")
+			if _, err := os.Stat(absCwd); os.IsNotExist(err) || os.IsNotExist(fileStat(chalYml)) {
+				log.InfoH2("🗑️ Detected removal of challenge '%s' (cwd: %s)", ch.Name, ch.Cwd)
+				go w.undeployAndRemoveChallenge(ch)
+				found = true
+			}
+		}
+	}
+
+	// Fallback: if not found via local YAML (e.g., YAML already deleted), try to infer from path and delete via API
+	if !found {
+		w.deleteApiChallengeByPath(removedDir)
+	}
+}
+
+// fileStat returns error if path does not exist; helper to simplify logic
+func fileStat(path string) error {
+	_, err := os.Stat(path)
+	return err
+}
+
+// deleteApiChallengeByPath attempts to delete a challenge from API based on removed directory path
+func (w *Watcher) deleteApiChallengeByPath(removedDir string) {
+	absRemoved, _ := filepath.Abs(removedDir)
+	candName := filepath.Base(absRemoved)
+	candCategory := filepath.Base(filepath.Dir(absRemoved))
+
+	config, err := GetConfig(w.gz.api)
+	if err != nil {
+		log.Error("Failed to load config to delete challenge by path %s: %v", removedDir, err)
+		return
+	}
+	config.Event.CS = w.gz.api
+	apiChallenges, err := config.Event.GetChallenges()
+	if err != nil {
+		log.Error("Failed to fetch API challenges to delete by path %s: %v", removedDir, err)
+		return
+	}
+
+	// Try to find best match by title (and category if matches)
+	for i := range apiChallenges {
+		titleMatch := strings.EqualFold(apiChallenges[i].Title, candName)
+		categoryMatch := strings.EqualFold(apiChallenges[i].Category, candCategory)
+		if titleMatch || (titleMatch && categoryMatch) {
+			apiChallenges[i].CS = w.gz.api
+			if err := apiChallenges[i].Delete(); err != nil {
+				log.Error("Failed to delete challenge %s inferred from %s: %v", apiChallenges[i].Title, removedDir, err)
+				continue
+			}
+			log.InfoH2("✅ Challenge removed from GZCTF by path inference: %s", apiChallenges[i].Title)
+			// Best-effort: stop after first successful delete
+			return
+		}
+	}
+
+	log.Info("No matching API challenge found to delete for path: %s (candidate name: %s, category: %s)", removedDir, candName, candCategory)
+}
+
+// undeployAndRemoveChallenge stops running services and deletes the challenge from GZCTF
+func (w *Watcher) undeployAndRemoveChallenge(challenge ChallengeYaml) {
+	// Serialize per-challenge operations
+	mutex := w.getChallengeUpdateMutex(challenge.Name)
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	log.InfoH2("🔻 Undeploying and removing challenge: %s", challenge.Name)
+
+	// Run stop script if available
+	if _, exists := challenge.Scripts["stop"]; exists {
+		log.InfoH3("Running stop script for %s", challenge.Name)
+		if err := runScript(challenge, "stop"); err != nil {
+			log.Error("Stop script failed for %s: %v", challenge.Name, err)
+		}
+	}
+
+	// Delete from API
+	config, err := GetConfig(w.gz.api)
+	if err != nil {
+		log.Error("Failed to load config to delete challenge %s: %v", challenge.Name, err)
+		return
+	}
+	config.Event.CS = w.gz.api
+	challenges, err := config.Event.GetChallenges()
+	if err != nil {
+		log.Error("Failed to list API challenges to delete %s: %v", challenge.Name, err)
+		return
+	}
+	// Find API challenge
+	var apiChallenge *gzapi.Challenge
+	for i := range challenges {
+		if challenges[i].Title == challenge.Name {
+			apiChallenge = &challenges[i]
+			break
+		}
+	}
+	if apiChallenge == nil {
+		log.Info("Challenge %s not present in API; nothing to delete", challenge.Name)
+		return
+	}
+	apiChallenge.CS = w.gz.api
+	if err := apiChallenge.Delete(); err != nil {
+		log.Error("Failed to delete challenge %s in API: %v", challenge.Name, err)
+		return
+	}
+	log.InfoH2("✅ Challenge removed from GZCTF: %s", challenge.Name)
+
+	// Unwatch this challenge locally so it can be re-added if recreated later
+	w.watchedMu.Lock()
+	delete(w.watchedChallenges, challenge.Name)
+	w.watchedMu.Unlock()
+	// Best-effort: remove watch on its cwd
+	if w.watcher != nil {
+		if err := w.watcher.Remove(challenge.Cwd); err != nil {
+			// Directory may no longer exist; ignore errors
+			log.DebugH3("Watcher remove for %s returned: %v", challenge.Cwd, err)
+		}
+	}
+}
+
 // shouldProcessEvent determines if we should process a file system event
 func (w *Watcher) shouldProcessEvent(event fsnotify.Event, config WatcherConfig) bool {
-	// Only process Write and Create events to avoid loops
-	if event.Op&fsnotify.Write == 0 && event.Op&fsnotify.Create == 0 {
+	// Process Write, Create, Remove, and Rename events
+	if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) == 0 {
 		return false
 	}
 
