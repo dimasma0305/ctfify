@@ -1484,16 +1484,7 @@ func (w *Watcher) performGitPull(repoPath string) error {
 		return fmt.Errorf("failed to get worktree: %w", err)
 	}
 
-	// If there are local tracked changes, skip pulling to avoid overwriting user work
-	// Ignore untracked/ignored files so noise doesn't block pulls
-	status, statusErr := workTree.Status()
-	if statusErr != nil {
-		return fmt.Errorf("failed to read worktree status: %w", statusErr)
-	}
-	if hasTrackedChanges(status) {
-		log.InfoH3("⏭️ Skipping git pull: tracked changes detected. Commit or stash to enable pull.")
-		return nil
-	}
+	// Attempt pull directly; if it fails, we'll log the error (likely due to local changes)
 
 	// Prepare authentication if needed (SSH or HTTPS)
 	auth, authErr := prepareGitAuth(repo)
