@@ -663,6 +663,12 @@ func (w *Watcher) determineUpdateType(filePath string, challenge ChallengeYaml) 
 		return UpdateNone
 	}
 
+	// Ignore dist.zip in the root of the challenge directory
+	if relPath == "dist.zip" {
+		log.InfoH3("Root dist.zip changed, ignoring event")
+		return UpdateNone
+	}
+
 	// Check if it's challenge.yml - metadata update only
 	if filepath.Base(relPath) == "challenge.yml" {
 		log.InfoH3("Challenge configuration file changed, updating metadata and attachment")
