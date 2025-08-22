@@ -27,23 +27,24 @@ import (
 )
 
 type Watcher struct {
-	gz                 *GZ
-	watcher            *fsnotify.Watcher
-	config             WatcherConfig
-	ctx                context.Context
-	cancel             context.CancelFunc
-	wg                 sync.WaitGroup
-	debounceTimers     map[string]*time.Timer
-	debounceTimersMu   sync.RWMutex
-	challengeMutexes   map[string]*sync.Mutex
-	challengeMutexesMu sync.RWMutex
-	pendingUpdates     map[string]string // challengeName -> latest file path
-	pendingUpdatesMu   sync.RWMutex
-	updatingChallenges map[string]bool // challengeName -> is updating
-	updatingMu         sync.RWMutex
-	watchedChallenges  map[string]bool // challengeName -> is being watched
-	watchedMu          sync.RWMutex
-	daemonContext      *daemon.Context // Daemon context for process management
+	gz                   *GZ
+	watcher              *fsnotify.Watcher
+	config               WatcherConfig
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	wg                   sync.WaitGroup
+	debounceTimers       map[string]*time.Timer
+	debounceTimersMu     sync.RWMutex
+	challengeMutexes     map[string]*sync.Mutex
+	challengeMutexesMu   sync.RWMutex
+	pendingUpdates       map[string]string // challengeName -> latest file path
+	pendingUpdatesMu     sync.RWMutex
+	updatingChallenges   map[string]bool // challengeName -> is updating
+	updatingMu           sync.RWMutex
+	watchedChallenges    map[string]bool // challengeName -> is being watched
+	watchedMu            sync.RWMutex
+	daemonContext        *daemon.Context   // Daemon context for process management
+	watchedChallengeDirs map[string]string // challengeName -> cwd
 }
 
 type WatcherConfig struct {
@@ -108,15 +109,16 @@ func NewWatcher(gz *GZ) (*Watcher, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Watcher{
-		gz:                 gz,
-		watcher:            watcher,
-		ctx:                ctx,
-		cancel:             cancel,
-		debounceTimers:     make(map[string]*time.Timer),
-		challengeMutexes:   make(map[string]*sync.Mutex),
-		pendingUpdates:     make(map[string]string),
-		updatingChallenges: make(map[string]bool),
-		watchedChallenges:  make(map[string]bool),
+		gz:                   gz,
+		watcher:              watcher,
+		ctx:                  ctx,
+		cancel:               cancel,
+		debounceTimers:       make(map[string]*time.Timer),
+		challengeMutexes:     make(map[string]*sync.Mutex),
+		pendingUpdates:       make(map[string]string),
+		updatingChallenges:   make(map[string]bool),
+		watchedChallenges:    make(map[string]bool),
+		watchedChallengeDirs: make(map[string]string),
 	}, nil
 }
 
@@ -321,6 +323,7 @@ func (w *Watcher) addChallengeToWatch(challenge ChallengeYaml) error {
 	// Mark as watched
 	w.watchedMu.Lock()
 	w.watchedChallenges[challenge.Name] = true
+	w.watchedChallengeDirs[challenge.Name] = challenge.Cwd
 	w.watchedMu.Unlock()
 
 	log.InfoH2("Now watching: %s (%s)", challenge.Name, challenge.Cwd)
@@ -393,6 +396,8 @@ func (w *Watcher) handleFileRemoval(path string) {
 	if base == "challenge.yml" {
 		// The parent directory represents the challenge cwd
 		dir := filepath.Dir(path)
+		// Clear watch state so recreation is detected later
+		w.clearWatchedByPath(dir)
 		w.handleChallengeRemovalByDir(dir)
 		return
 	}
@@ -401,10 +406,12 @@ func (w *Watcher) handleFileRemoval(path string) {
 	info, err := os.Stat(path)
 	if err != nil && os.IsNotExist(err) {
 		// Path no longer exists: check if any challenge cwd had this as prefix
+		w.clearWatchedByPath(path)
 		w.handleChallengeRemovalByDir(path)
 		return
 	}
 	if err == nil && info.IsDir() {
+		w.clearWatchedByPath(path)
 		w.handleChallengeRemovalByDir(path)
 	}
 }
@@ -441,6 +448,26 @@ func (w *Watcher) handleChallengeRemovalByDir(removedDir string) {
 func fileStat(path string) error {
 	_, err := os.Stat(path)
 	return err
+}
+
+// clearWatchedByPath clears local watched state using a removed directory path hint
+func (w *Watcher) clearWatchedByPath(removedDir string) {
+	w.watchedMu.Lock()
+	defer w.watchedMu.Unlock()
+	absRemoved, _ := filepath.Abs(removedDir)
+	for name, dir := range w.watchedChallengeDirs {
+		absDir, _ := filepath.Abs(dir)
+		if strings.HasPrefix(absDir, absRemoved) || strings.HasPrefix(absRemoved, absDir) {
+			delete(w.watchedChallenges, name)
+			delete(w.watchedChallengeDirs, name)
+			if w.watcher != nil {
+				if err := w.watcher.Remove(dir); err != nil {
+					log.DebugH3("Watcher remove for %s returned: %v", dir, err)
+				}
+			}
+			log.InfoH3("Cleared watch state for removed challenge path: %s (%s)", name, dir)
+		}
+	}
 }
 
 // deleteApiChallengeByPath attempts to delete a challenge from API based on removed directory path
@@ -531,6 +558,7 @@ func (w *Watcher) undeployAndRemoveChallenge(challenge ChallengeYaml) {
 	// Unwatch this challenge locally so it can be re-added if recreated later
 	w.watchedMu.Lock()
 	delete(w.watchedChallenges, challenge.Name)
+	delete(w.watchedChallengeDirs, challenge.Name)
 	w.watchedMu.Unlock()
 	// Best-effort: remove watch on its cwd
 	if w.watcher != nil {
@@ -1450,13 +1478,14 @@ func (w *Watcher) performGitPull(repoPath string) error {
 		return fmt.Errorf("failed to get worktree: %w", err)
 	}
 
-	// If there are local changes, skip pulling to avoid overwriting user work
+	// If there are local tracked changes, skip pulling to avoid overwriting user work
+	// Ignore untracked/ignored files so noise doesn't block pulls
 	status, statusErr := workTree.Status()
 	if statusErr != nil {
 		return fmt.Errorf("failed to read worktree status: %w", statusErr)
 	}
-	if !status.IsClean() {
-		log.InfoH3("⏭️ Skipping git pull: local changes detected. Commit or stash to enable pull.")
+	if hasTrackedChanges(status) {
+		log.InfoH3("⏭️ Skipping git pull: tracked changes detected. Commit or stash to enable pull.")
 		return nil
 	}
 
@@ -1489,6 +1518,22 @@ func (w *Watcher) performGitPull(repoPath string) error {
 	w.checkForNewChallenges()
 
 	return nil
+}
+
+// hasTrackedChanges returns true if there are modifications to tracked files (staged or in worktree),
+// ignoring purely untracked/ignored files so that pulls aren't blocked by generated artifacts.
+func hasTrackedChanges(status git.Status) bool {
+	for _, s := range status {
+		// Skip purely untracked entries
+		if s.Staging == git.Untracked && s.Worktree == git.Untracked {
+			continue
+		}
+		// Consider any modification to tracked files as dirty
+		if s.Staging != git.Unmodified || s.Worktree != git.Unmodified {
+			return true
+		}
+	}
+	return false
 }
 
 // findGitRepoRoot walks up from startPath to find a directory containing a .git folder
