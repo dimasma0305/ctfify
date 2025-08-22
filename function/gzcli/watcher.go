@@ -18,12 +18,8 @@ import (
 	"github.com/dimasma0305/ctfify/function/log"
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/transport"
-	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	tail "github.com/hpcloud/tail"
 	"github.com/sevlyar/go-daemon"
-	cryptossh "golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 type Watcher struct {
@@ -664,7 +660,7 @@ func (w *Watcher) determineUpdateType(filePath string, challenge ChallengeYaml) 
 	}
 
 	// Ignore dist.zip in the root of the challenge directory
-	if relPath == "dist.zip" {
+	if filepath.Base(relPath) == "dist.zip" {
 		log.InfoH3("Root dist.zip changed, ignoring event")
 		return UpdateNone
 	}
@@ -1463,52 +1459,38 @@ func (w *Watcher) gitPullLoop(config WatcherConfig) {
 func (w *Watcher) performGitPull(repoPath string) error {
 	log.InfoH3("🔄 Pulling latest changes from git repository: %s", repoPath)
 
-	// Open the repository
-	repo, err := git.PlainOpenWithOptions(repoPath, &git.PlainOpenOptions{DetectDotGit: true})
-	if err != nil {
-		// Attempt to detect the repository root when invoked from a subdirectory
-		if root, findErr := findGitRepoRoot(repoPath); findErr == nil {
-			log.Info("Detected git repository root at: %s", root)
-			repo, err = git.PlainOpen(root)
-			if err != nil {
-				return fmt.Errorf("failed to open detected git repository at %s: %w", root, err)
-			}
+	// Detect repository root (handle invocation from subdirectories)
+	root := repoPath
+	if _, err := os.Stat(filepath.Join(repoPath, ".git")); err != nil {
+		if detected, findErr := findGitRepoRoot(repoPath); findErr == nil {
+			log.Info("Detected git repository root at: %s", detected)
+			root = detected
 		} else {
-			return fmt.Errorf("failed to open git repository at %s: %w", repoPath, err)
+			return fmt.Errorf("failed to locate git repository at %s: %w", repoPath, findErr)
 		}
 	}
 
-	// Get the working directory
-	workTree, err := repo.Worktree()
+	// Execute system git pull (inherits env; uses current credentials/SSH config)
+	cmd := exec.Command("git", "-C", root, "pull")
+	cmd.Env = os.Environ()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to get worktree: %w", err)
-	}
-
-	// Attempt pull directly; if it fails, we'll log the error (likely due to local changes)
-
-	// Prepare authentication if needed (SSH or HTTPS)
-	auth, authErr := prepareGitAuth(repo)
-	if authErr != nil {
-		return fmt.Errorf("failed to prepare git authentication: %w", authErr)
-	}
-
-	// Perform the pull
-	pullOptions := &git.PullOptions{
-		RemoteName: "origin",
-		Auth:       auth,
-	}
-
-	err = workTree.Pull(pullOptions)
-	if err != nil {
-		// Check if it's "already up-to-date" error
-		if err == git.NoErrAlreadyUpToDate {
-			log.InfoH3("📄 Repository is already up-to-date")
-			return nil
+		log.Error("git pull failed: %v", err)
+		if len(output) > 0 {
+			log.Error("git output: %s", strings.TrimSpace(string(output)))
 		}
 		return fmt.Errorf("git pull failed: %w", err)
 	}
 
-	log.InfoH3("✅ Git pull completed successfully")
+	// Log concise success and any non-empty output
+	out := strings.TrimSpace(string(output))
+	if out == "Already up to date." || strings.Contains(out, "Already up to date") {
+		log.InfoH3("📄 Repository is already up-to-date")
+	} else if out != "" {
+		log.InfoH3("✅ Git pull output:\n%s", out)
+	} else {
+		log.InfoH3("✅ Git pull completed successfully")
+	}
 
 	// After successful pull, check for new challenges
 	log.InfoH3("🔍 Checking for new challenges after git pull...")
@@ -1557,98 +1539,6 @@ func findGitRepoRoot(startPath string) (string, error) {
 		}
 		current = parent
 	}
-}
-
-// prepareGitAuth inspects remotes and returns an auth method if needed.
-func prepareGitAuth(repo *git.Repository) (transport.AuthMethod, error) {
-	remotes, err := repo.Remotes()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list remotes: %w", err)
-	}
-	var remoteURL string
-	for _, r := range remotes {
-		if r.Config() != nil && r.Config().Name == "origin" && len(r.Config().URLs) > 0 {
-			remoteURL = r.Config().URLs[0]
-			break
-		}
-	}
-	if remoteURL == "" && len(remotes) > 0 && remotes[0].Config() != nil && len(remotes[0].Config().URLs) > 0 {
-		remoteURL = remotes[0].Config().URLs[0]
-	}
-	if remoteURL == "" {
-		return nil, nil
-	}
-
-	// Only set SSH auth for SSH URLs
-	if strings.HasPrefix(remoteURL, "git@") || strings.HasPrefix(remoteURL, "ssh://") {
-		if auth, err := sshAgentAuth(); err == nil && auth != nil {
-			return auth, nil
-		}
-		return privateKeyAuth()
-	}
-	return nil, nil
-}
-
-// sshAgentAuth tries to use SSH agent if SSH_AUTH_SOCK is set.
-func sshAgentAuth() (transport.AuthMethod, error) {
-	sock := os.Getenv("SSH_AUTH_SOCK")
-	if strings.TrimSpace(sock) == "" {
-		return nil, fmt.Errorf("SSH_AUTH_SOCK not set")
-	}
-
-	auth, err := gitssh.NewSSHAgentAuth("git")
-	if err != nil {
-		return nil, err
-	}
-	// Attach known_hosts verification if possible
-	if hostKeyCallback, _ := loadKnownHosts(); hostKeyCallback != nil {
-		auth.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{HostKeyCallback: hostKeyCallback}
-	}
-	return auth, nil
-}
-
-// privateKeyAuth loads ~/.ssh/id_rsa or other common key files when agent isn't available.
-func privateKeyAuth() (transport.AuthMethod, error) {
-	user := "git"
-	keyPaths := []string{
-		filepath.Join(os.Getenv("HOME"), ".ssh", "id_ed25519"),
-		filepath.Join(os.Getenv("HOME"), ".ssh", "id_rsa"),
-	}
-	var signer cryptossh.Signer
-	for _, p := range keyPaths {
-		if _, err := os.Stat(p); err == nil {
-			pemBytes, readErr := os.ReadFile(p)
-			if readErr != nil {
-				continue
-			}
-			// Try without passphrase first
-			s, parseErr := cryptossh.ParsePrivateKey(pemBytes)
-			if parseErr == nil {
-				signer = s
-				break
-			}
-		}
-	}
-	if signer == nil {
-		return nil, fmt.Errorf("no usable private key found")
-	}
-
-	hostKeyCallback, _ := loadKnownHosts()
-	return &gitssh.PublicKeys{
-		User:                  user,
-		Signer:                signer,
-		HostKeyCallbackHelper: gitssh.HostKeyCallbackHelper{HostKeyCallback: hostKeyCallback},
-	}, nil
-}
-
-// loadKnownHosts returns a host key callback using known_hosts if present, else InsecureIgnoreHostKey
-func loadKnownHosts() (cryptossh.HostKeyCallback, error) {
-	path := filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts")
-	callback, err := knownhosts.New(path)
-	if err != nil {
-		return cryptossh.InsecureIgnoreHostKey(), err
-	}
-	return callback, nil
 }
 
 // FollowLogs follows a log file and displays new content in real-time
