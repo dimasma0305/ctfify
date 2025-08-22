@@ -17,7 +17,6 @@ import (
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
 	"github.com/dimasma0305/ctfify/function/log"
 	"github.com/fsnotify/fsnotify"
-	"github.com/go-git/go-git/v5"
 	tail "github.com/hpcloud/tail"
 	"github.com/sevlyar/go-daemon"
 )
@@ -392,53 +391,39 @@ func (w *Watcher) handleFileRemoval(path string) {
 	if base == "challenge.yml" || base == "challenge.yaml" {
 		// The parent directory represents the challenge cwd
 		dir := filepath.Dir(path)
-		// Clear watch state so recreation is detected later
-		w.clearWatchedByPath(dir)
+		// Handle removal based solely on YAML absence (don't clear state prematurely)
 		w.handleChallengeRemovalByDir(dir)
 		return
-	}
-
-	// If a whole directory was renamed/removed, try to find any watched challenge under that path
-	info, err := os.Stat(path)
-	if err != nil && os.IsNotExist(err) {
-		// Path no longer exists: check if any challenge cwd had this as prefix
-		w.clearWatchedByPath(path)
-		w.handleChallengeRemovalByDir(path)
-		return
-	}
-	if err == nil && info.IsDir() {
-		w.clearWatchedByPath(path)
-		w.handleChallengeRemovalByDir(path)
 	}
 }
 
 // handleChallengeRemovalByDir determines if a watched challenge lives under removedDir and undeploys+removes it
 func (w *Watcher) handleChallengeRemovalByDir(removedDir string) {
+	// Simplify: only check for missing challenge.yml/.yaml in the provided directory
+	absRemoved, _ := filepath.Abs(removedDir)
+	chalYml := filepath.Join(absRemoved, "challenge.yml")
+	chalYaml := filepath.Join(absRemoved, "challenge.yaml")
+	if !(os.IsNotExist(fileStat(chalYml)) && os.IsNotExist(fileStat(chalYaml))) {
+		return
+	}
+
+	// Identify the challenge by exact cwd match
 	challenges, err := w.getChallenges()
 	if err != nil {
 		log.Error("Failed to get challenges while handling removal: %v", err)
 		return
 	}
-	absRemoved, _ := filepath.Abs(removedDir)
-	found := false
 	for _, ch := range challenges {
 		absCwd, _ := filepath.Abs(ch.Cwd)
-		if strings.HasPrefix(absCwd, absRemoved) || strings.HasPrefix(absRemoved, absCwd) {
-			// Confirm challenge directory no longer exists or challenge.yml/.yaml missing
-			chalYml := filepath.Join(ch.Cwd, "challenge.yml")
-			chalYaml := filepath.Join(ch.Cwd, "challenge.yaml")
-			if _, err := os.Stat(absCwd); os.IsNotExist(err) || (os.IsNotExist(fileStat(chalYml)) && os.IsNotExist(fileStat(chalYaml))) {
-				log.InfoH2("🗑️ Detected removal of challenge '%s' (cwd: %s)", ch.Name, ch.Cwd)
-				go w.undeployAndRemoveChallenge(ch)
-				found = true
-			}
+		if absCwd == absRemoved {
+			log.InfoH2("🗑️ challenge.yml/.yaml missing, removing challenge '%s' (cwd: %s)", ch.Name, ch.Cwd)
+			go w.undeployAndRemoveChallenge(ch)
+			return
 		}
 	}
 
-	// Fallback: if not found via local YAML (e.g., YAML already deleted), try to infer from path and delete via API
-	if !found {
-		w.deleteApiChallengeByPath(removedDir)
-	}
+	// If exact match not found, best-effort API deletion by path inference
+	w.deleteApiChallengeByPath(removedDir)
 }
 
 // fileStat returns error if path does not exist; helper to simplify logic
@@ -686,9 +671,9 @@ func (w *Watcher) determineUpdateType(filePath string, challenge ChallengeYaml) 
 		return UpdateFullRedeploy
 	}
 
-	// Default to metadata update for other files
-	log.InfoH3("Other file changed, updating metadata and attachment")
-	return UpdateMetadata
+	// Only listen to src/, dist/ and challenge.yml/yaml. Ignore any other paths.
+	log.InfoH3("Change outside allowed paths (src/, dist/, challenge.yml/.yaml); ignoring")
+	return UpdateNone
 }
 
 // handleFileChange processes a file change event
@@ -1493,26 +1478,6 @@ func (w *Watcher) performGitPull(repoPath string) error {
 	w.checkForNewChallenges()
 
 	return nil
-}
-
-func hasTrackedChanges(status git.Status) bool {
-	// Detect only real tracked-file modifications; ignore untracked/ignored
-	for _, s := range status {
-		if isTrackedModification(s.Staging) || isTrackedModification(s.Worktree) {
-			return true
-		}
-	}
-	return false
-}
-
-func isTrackedModification(code git.StatusCode) bool {
-	switch code {
-	case git.Modified, git.Added, git.Deleted, git.Renamed, git.Copied, git.UpdatedButUnmerged:
-		return true
-	default:
-		// Treat Unmodified, Untracked (and any others) as not a tracked modification
-		return false
-	}
 }
 
 // findGitRepoRoot walks up from startPath to find a directory containing a .git folder
