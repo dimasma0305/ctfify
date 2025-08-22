@@ -1526,20 +1526,24 @@ func (w *Watcher) performGitPull(repoPath string) error {
 	return nil
 }
 
-// hasTrackedChanges returns true if there are modifications to tracked files (staged or in worktree),
-// ignoring purely untracked/ignored files so that pulls aren't blocked by generated artifacts.
 func hasTrackedChanges(status git.Status) bool {
+	// Detect only real tracked-file modifications; ignore untracked/ignored
 	for _, s := range status {
-		// Skip purely untracked entries
-		if s.Staging == git.Untracked && s.Worktree == git.Untracked {
-			continue
-		}
-		// Consider any modification to tracked files as dirty
-		if s.Staging != git.Unmodified || s.Worktree != git.Unmodified {
+		if isTrackedModification(s.Staging) || isTrackedModification(s.Worktree) {
 			return true
 		}
 	}
 	return false
+}
+
+func isTrackedModification(code git.StatusCode) bool {
+	switch code {
+	case git.Modified, git.Added, git.Deleted, git.Renamed, git.Copied, git.UpdatedButUnmerged:
+		return true
+	default:
+		// Treat Unmodified, Untracked (and any others) as not a tracked modification
+		return false
+	}
 }
 
 // findGitRepoRoot walks up from startPath to find a directory containing a .git folder
