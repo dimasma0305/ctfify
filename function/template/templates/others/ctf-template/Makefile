@@ -11,12 +11,12 @@ sync:
 sync-and-update-game:
 	${SUDO} ${BIN} gzcli --sync --update-game
 
-setup: setup-traefik-network
+setup:
 	@echo "Setting up CTF environment with Traefik..."
-	@echo "External network 'traefik' created"
+	@echo "Traefik network will be created by docker-compose"
 	@echo "You can now run 'make platform-up' to start the platform"
 
-platform-up: setup-traefik-network
+platform-up:
 	@echo "Starting CTF platform with docker compose..."
 	(cd .gzctf && ${SUDO} docker compose up -d)
 
@@ -24,7 +24,7 @@ platform-down:
 	@echo "Stopping CTF platform with docker compose..."
 	(cd .gzctf && ${SUDO} docker compose down)
 
-gzcli-start: setup-traefik-network
+gzcli-start:
 	${SUDO} ${BIN} gzcli --run-script start
 
 gzcli-stop:
@@ -50,9 +50,6 @@ send-email:
 
 flush-cache:
 	(cd .gzctf && ${SUDO} docker compose exec -uroot cache redis-cli FLUSHALL)
-
-setup-traefik-network:
-	${SUDO} docker network create traefik || true
 
 traefik-logs:
 	(cd .gzctf && ${SUDO} docker compose logs -f traefik)
@@ -80,7 +77,7 @@ gzctf-logs:
 platform-clean:
 	@echo "Stopping all services and cleaning up..."
 	(cd .gzctf && ${SUDO} docker compose down -v) || true
-	@echo "Note: External 'traefik' network is preserved for other services"
+	@echo "Note: Traefik network will be recreated automatically if needed"
 
 # Convenient aliases
 up: platform-up
@@ -91,7 +88,7 @@ help:
 	@echo "CTFify Makefile - Traefik Edition"
 	@echo ""
 	@echo "Setup & Platform Management:"
-	@echo "  setup               - Initial setup (creates traefik network)"
+	@echo "  setup               - Initial setup (no manual network creation)"
 	@echo "  platform-up         - Start platform with docker compose up -d"
 	@echo "  platform-down       - Stop platform with docker compose down"
 	@echo "  platform-clean      - Stop and remove all containers/volumes"
@@ -115,7 +112,6 @@ help:
 	@echo "  send-email          - Create teams and send emails from CSV"
 	@echo ""
 	@echo "Traefik Operations:"
-	@echo "  setup-traefik-network - Create external traefik network"
 	@echo "  traefik-logs        - View Traefik logs"
 	@echo "  traefik-dashboard   - Show Traefik dashboard info"
 	@echo "  restart-traefik     - Restart Traefik service"
@@ -133,4 +129,3 @@ help:
 	@echo "  up                  - Alias for platform-up"
 	@echo "  down                - Alias for platform-down"
 	@echo "  clean               - Alias for platform-clean"
-

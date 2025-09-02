@@ -17,30 +17,33 @@ services:
       - db
       - cache
     networks:
-      - traefik
-      - default
+      traefik:
+        ipv4_address: 172.30.0.10
+      app_net:
+        ipv4_address: 172.28.0.10
     labels:
-        - "traefik.enable=true"
-        - "traefik.http.services.gzctf.loadbalancer.server.port=8080"
-        # HTTPS router
-        - "traefik.http.routers.https.rule=Host(`{{.PublicEntry}}`)"
-        - "traefik.http.routers.https.entrypoints=websecure"
-        - "traefik.http.routers.https.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.https.service=gzctf"
-        # HTTP router
-        - "traefik.http.routers.http.rule=Host(`{{.PublicEntry}}`)"
-        - "traefik.http.routers.http.entrypoints=web"
-        - "traefik.http.routers.http.service=gzctf"
-         # Rate limit middleware
-        # - "traefik.http.middlewares.gzctf-ratelimit.ratelimit.average=100"
-        # - "traefik.http.middlewares.gzctf-ratelimit.ratelimit.burst=50"
-        # - "traefik.http.routers.gzctf.middlewares=gzctf-ratelimit"
+      - "traefik.enable=true"
+      - "traefik.http.services.gzctf.loadbalancer.server.port=8080"
+      # HTTPS router
+      - "traefik.http.routers.https.rule=Host(`{{.PublicEntry}}`)"
+      - "traefik.http.routers.https.entrypoints=websecure"
+      - "traefik.http.routers.https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.https.service=gzctf"
+      # HTTP router
+      - "traefik.http.routers.http.rule=Host(`{{.PublicEntry}}`)"
+      - "traefik.http.routers.http.entrypoints=web"
+      - "traefik.http.routers.http.service=gzctf"
+
   gzctf-bot:
     build: bot
     restart: always
     environment:
       GZCTF_DISCORD_WEBHOOK: "{{.DiscordWebhook}}"
       POSTGRES_PASSWORD: postgres
+    networks:
+      app_net:
+        ipv4_address: 172.28.0.11
+
   db:
     image: postgres:alpine
     restart: always
@@ -48,10 +51,16 @@ services:
       - "POSTGRES_PASSWORD=postgres"
     volumes:
       - "postgres-data:/var/lib/postgresql/data"
+    networks:
+      app_net:
+        ipv4_address: 172.28.0.12
 
   cache:
     image: redis:alpine
     restart: always
+    networks:
+      app_net:
+        ipv4_address: 172.28.0.13
 
   traefik:
     image: traefik:v3.5
@@ -74,8 +83,10 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "./letsencrypt:/letsencrypt"
     networks:
-      - traefik
-      - default
+      traefik:
+        ipv4_address: 172.30.0.2
+      app_net:
+        ipv4_address: 172.28.0.2
     depends_on:
       - gzctf
 
@@ -85,4 +96,13 @@ volumes:
 
 networks:
   traefik:
-    external: true
+    name: traefik
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+  app_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

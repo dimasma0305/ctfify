@@ -40,6 +40,8 @@ type Watcher struct {
 	watchedMu            sync.RWMutex
 	daemonContext        *daemon.Context   // Daemon context for process management
 	watchedChallengeDirs map[string]string // challengeName -> cwd
+	challengeConfigs     map[string]ChallengeYaml // challengeName -> full config (for scripts)
+	challengeConfigsMu   sync.RWMutex
 }
 
 type WatcherConfig struct {
@@ -114,6 +116,7 @@ func NewWatcher(gz *GZ) (*Watcher, error) {
 		updatingChallenges:   make(map[string]bool),
 		watchedChallenges:    make(map[string]bool),
 		watchedChallengeDirs: make(map[string]string),
+		challengeConfigs:     make(map[string]ChallengeYaml),
 	}, nil
 }
 
@@ -315,11 +318,15 @@ func (w *Watcher) addChallengeToWatch(challenge ChallengeYaml) error {
 		return fmt.Errorf("failed to walk directory %s: %w", challenge.Cwd, err)
 	}
 
-	// Mark as watched
+	// Mark as watched and store config
 	w.watchedMu.Lock()
 	w.watchedChallenges[challenge.Name] = true
 	w.watchedChallengeDirs[challenge.Name] = challenge.Cwd
 	w.watchedMu.Unlock()
+	
+	w.challengeConfigsMu.Lock()
+	w.challengeConfigs[challenge.Name] = challenge
+	w.challengeConfigsMu.Unlock()
 
 	log.InfoH2("Now watching: %s (%s)", challenge.Name, challenge.Cwd)
 	return nil
@@ -341,21 +348,27 @@ func (w *Watcher) watchLoop(config WatcherConfig) {
 			if w.shouldProcessEvent(event, config) {
 				log.InfoH2("File change detected: %s (%s)", event.Name, event.Op.String())
 
-				// Debounce the event using the watcher's debounce timers
-				w.debounceTimersMu.Lock()
-				if timer, exists := w.debounceTimers[event.Name]; exists {
-					timer.Stop()
-				}
-
-				// Copy event to avoid closure capturing issues
-				ev := event
-				w.debounceTimers[event.Name] = time.AfterFunc(config.DebounceTime, func() {
-					w.handleEvent(ev)
+				// Handle removal events immediately without debouncing
+				if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+					log.InfoH2("Processing removal event immediately: %s", event.Name)
+					w.handleEvent(event)
+				} else {
+					// Debounce other events (Write, Create)
 					w.debounceTimersMu.Lock()
-					delete(w.debounceTimers, ev.Name)
+					if timer, exists := w.debounceTimers[event.Name]; exists {
+						timer.Stop()
+					}
+
+					// Copy event to avoid closure capturing issues
+					ev := event
+					w.debounceTimers[event.Name] = time.AfterFunc(config.DebounceTime, func() {
+						w.handleEvent(ev)
+						w.debounceTimersMu.Lock()
+						delete(w.debounceTimers, ev.Name)
+						w.debounceTimersMu.Unlock()
+					})
 					w.debounceTimersMu.Unlock()
-				})
-				w.debounceTimersMu.Unlock()
+				}
 			}
 
 		case err, ok := <-w.watcher.Errors:
@@ -377,21 +390,38 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 	// For Create/Write, proceed with normal change handling if the file exists
 	if _, err := os.Stat(event.Name); err == nil {
 		w.handleFileChange(event.Name)
-	} else {
-		log.DebugH3("Skipping change handling, file not found: %s", event.Name)
 	}
 }
 
 // handleFileRemoval handles file or directory removals that may indicate a challenge deletion
 func (w *Watcher) handleFileRemoval(path string) {
-	log.InfoH2("Processing file removal: %s", path)
+	// Check if the removed path is a directory that might be a challenge directory
+	w.watchedMu.RLock()
+	var isWatchedChallengeDir bool
+	var challengeNameForDir string
+	absPath, _ := filepath.Abs(path)
+
+	for challengeName, challengeDir := range w.watchedChallengeDirs {
+		absChallengeDir, _ := filepath.Abs(challengeDir)
+		if absChallengeDir == absPath {
+			isWatchedChallengeDir = true
+			challengeNameForDir = challengeName
+			break
+		}
+	}
+	w.watchedMu.RUnlock()
+
+	if isWatchedChallengeDir {
+		log.InfoH2("Challenge directory removed: %s", challengeNameForDir)
+		w.handleChallengeRemovalByDir(path)
+		return
+	}
 
 	// If a challenge.yml or challenge.yaml is removed, infer which challenge it belonged to by path prefix
 	base := filepath.Base(path)
 	if base == "challenge.yml" || base == "challenge.yaml" {
 		// The parent directory represents the challenge cwd
 		dir := filepath.Dir(path)
-		// Handle removal based solely on YAML absence (don't clear state prematurely)
 		w.handleChallengeRemovalByDir(dir)
 		return
 	}
@@ -399,30 +429,55 @@ func (w *Watcher) handleFileRemoval(path string) {
 
 // handleChallengeRemovalByDir determines if a watched challenge lives under removedDir and undeploys+removes it
 func (w *Watcher) handleChallengeRemovalByDir(removedDir string) {
-	// Simplify: only check for missing challenge.yml/.yaml in the provided directory
 	absRemoved, _ := filepath.Abs(removedDir)
-	chalYml := filepath.Join(absRemoved, "challenge.yml")
-	chalYaml := filepath.Join(absRemoved, "challenge.yaml")
-	if !(os.IsNotExist(fileStat(chalYml)) && os.IsNotExist(fileStat(chalYaml))) {
-		return
-	}
 
-	// Identify the challenge by exact cwd match
-	challenges, err := w.getChallenges()
-	if err != nil {
-		log.Error("Failed to get challenges while handling removal: %v", err)
-		return
-	}
-	for _, ch := range challenges {
-		absCwd, _ := filepath.Abs(ch.Cwd)
-		if absCwd == absRemoved {
-			log.InfoH2("🗑️ challenge.yml/.yaml missing, removing challenge '%s' (cwd: %s)", ch.Name, ch.Cwd)
-			go w.undeployAndRemoveChallenge(ch)
-			return
+	// Check if the directory itself was removed (directory deletion scenario)
+	if _, err := os.Stat(absRemoved); os.IsNotExist(err) {
+		// Directory no longer exists, proceed with removal
+	} else {
+		// Directory still exists, check if challenge files are missing
+		chalYml := filepath.Join(absRemoved, "challenge.yml")
+		chalYaml := filepath.Join(absRemoved, "challenge.yaml")
+		if !(os.IsNotExist(fileStat(chalYml)) && os.IsNotExist(fileStat(chalYaml))) {
+			return // Challenge files still exist, don't remove
 		}
 	}
 
-	// If exact match not found, best-effort API deletion by path inference
+	// Use the watcher's internal state to find the challenge that was removed
+	// This is more reliable than getChallenges() since the YAML file is already deleted
+	w.watchedMu.RLock()
+	var removedChallengeName string
+	for challengeName, challengeDir := range w.watchedChallengeDirs {
+		absChallengeDir, _ := filepath.Abs(challengeDir)
+		if absChallengeDir == absRemoved {
+			removedChallengeName = challengeName
+			break
+		}
+	}
+	w.watchedMu.RUnlock()
+
+	if removedChallengeName != "" {
+		log.InfoH2("🗑️ Removing challenge: %s", removedChallengeName)
+
+		// Get the stored challenge configuration for scripts
+		w.challengeConfigsMu.RLock()
+		removedChallenge, hasStoredConfig := w.challengeConfigs[removedChallengeName]
+		w.challengeConfigsMu.RUnlock()
+		
+		if !hasStoredConfig {
+			// Fallback to minimal challenge struct if no stored config
+			removedChallenge = ChallengeYaml{
+				Name: removedChallengeName,
+				Cwd:  absRemoved,
+			}
+			log.Error("No stored configuration found for removed challenge %s, stop script may not run", removedChallengeName)
+		}
+
+		go w.undeployAndRemoveChallenge(removedChallenge)
+		return
+	}
+
+	// If not found in watched challenges, try best-effort API deletion by path inference
 	w.deleteApiChallengeByPath(removedDir)
 }
 
@@ -542,6 +597,11 @@ func (w *Watcher) undeployAndRemoveChallenge(challenge ChallengeYaml) {
 	delete(w.watchedChallenges, challenge.Name)
 	delete(w.watchedChallengeDirs, challenge.Name)
 	w.watchedMu.Unlock()
+	
+	// Remove stored configuration
+	w.challengeConfigsMu.Lock()
+	delete(w.challengeConfigs, challenge.Name)
+	w.challengeConfigsMu.Unlock()
 	// Best-effort: remove watch on its cwd
 	if w.watcher != nil {
 		if err := w.watcher.Remove(challenge.Cwd); err != nil {
@@ -637,8 +697,6 @@ func (w *Watcher) determineUpdateType(filePath string, challenge ChallengeYaml) 
 		return UpdateFullRedeploy // Default to full redeploy on error
 	}
 
-	log.DebugH3("Determining update type for: %s (relative: %s)", filePath, relPath)
-
 	// Check if it's in solver directory - no update needed
 	if strings.HasPrefix(relPath, "solver/") || strings.HasPrefix(relPath, "writeup/") {
 		log.InfoH3("File is in solver/writeup directory, skipping update")
@@ -694,12 +752,21 @@ func (w *Watcher) handleFileChange(filePath string) {
 
 	log.Info("File %s belongs to challenge: %s", filePath, challenge.Name)
 
-	// Check if this challenge is already being updated
+	// Use the challenge-specific mutex to prevent race conditions during update checks
+	challengeMutex := w.getChallengeUpdateMutex(challenge.Name)
+	challengeMutex.Lock()
+
+	// Check if this challenge is already being updated (within the mutex)
 	if w.isUpdating(challenge.Name) {
 		log.InfoH3("Challenge %s is already being updated, setting as pending", challenge.Name)
 		w.setPendingUpdate(challenge.Name, filePath)
+		challengeMutex.Unlock()
 		return
 	}
+
+	// Mark as updating before releasing the mutex to prevent race conditions
+	w.setUpdating(challenge.Name, true)
+	challengeMutex.Unlock()
 
 	// Start the update process
 	w.processUpdate(challenge.Name, filePath)
@@ -707,8 +774,7 @@ func (w *Watcher) handleFileChange(filePath string) {
 
 // processUpdate handles the actual update process and checks for pending updates
 func (w *Watcher) processUpdate(challengeName, filePath string) {
-	// Mark as updating
-	w.setUpdating(challengeName, true)
+	// Note: updating flag is already set in handleFileChange
 	defer w.setUpdating(challengeName, false)
 
 	for {
@@ -1070,10 +1136,9 @@ func (w *Watcher) checkAndAddNewChallenges(challenges []ChallengeYaml) {
 		}
 		log.InfoH3("✅ Successfully added new challenge to watcher: %s", challenge.Name)
 
-		// Sync the new challenge to GZCTF platform
-		log.InfoH3("🔄 Syncing new challenge to GZCTF platform: %s", challenge.Name)
-		go w.syncNewChallenge(challenge)
-		go w.fullRedeployChallenge(challenge)
+		// Sync and deploy the new challenge sequentially to prevent race conditions
+		log.InfoH3("🔄 Syncing and deploying new challenge: %s", challenge.Name)
+		go w.syncAndDeployNewChallenge(challenge)
 	}
 
 	if len(newChallenges) == 0 {
@@ -1083,7 +1148,54 @@ func (w *Watcher) checkAndAddNewChallenges(challenges []ChallengeYaml) {
 	}
 }
 
-// syncNewChallenge syncs a newly detected challenge to the GZCTF platform
+// syncAndDeployNewChallenge syncs and deploys a newly detected challenge sequentially to prevent race conditions
+func (w *Watcher) syncAndDeployNewChallenge(challenge ChallengeYaml) {
+	// Get a mutex for this challenge to prevent race conditions
+	mutex := w.getChallengeUpdateMutex(challenge.Name)
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	log.InfoH2("🚀 Starting sync and deploy for new challenge: %s", challenge.Name)
+
+	// Step 1: Sync the challenge to create it in the API
+	config, err := GetConfig(w.gz.api)
+	if err != nil {
+		log.Error("❌ Failed to get config for new challenge sync %s: %v", challenge.Name, err)
+		return
+	}
+	config.Event.CS = w.gz.api
+
+	// Get existing challenges from API
+	existingChallenges, err := config.Event.GetChallenges()
+	if err != nil {
+		log.Error("❌ Failed to get API challenges for new challenge sync %s: %v", challenge.Name, err)
+		return
+	}
+
+	// Sync the challenge (this will create it if it doesn't exist)
+	if err := syncChallenge(config, challenge, existingChallenges, w.gz.api); err != nil {
+		log.Error("❌ Failed to sync new challenge %s: %v", challenge.Name, err)
+		return
+	}
+
+	log.InfoH2("✅ Successfully synced new challenge: %s", challenge.Name)
+
+	// Step 2: Deploy the challenge (run start script if exists)
+	log.InfoH2("🚀 Starting deployment for new challenge: %s", challenge.Name)
+
+	// Run start script if exists
+	if _, exists := challenge.Scripts["start"]; exists {
+		log.InfoH3("Running start script for %s", challenge.Name)
+		if err := runScript(challenge, "start"); err != nil {
+			log.Error("❌ Start script failed for %s: %v", challenge.Name, err)
+			return
+		}
+	}
+
+	log.InfoH2("✅ Successfully deployed new challenge: %s", challenge.Name)
+}
+
+// syncNewChallenge syncs a newly detected challenge to the GZCTF platform (deprecated - use syncAndDeployNewChallenge)
 func (w *Watcher) syncNewChallenge(challenge ChallengeYaml) {
 	// Get a mutex for this challenge to prevent race conditions
 	mutex := w.getChallengeUpdateMutex(challenge.Name)
