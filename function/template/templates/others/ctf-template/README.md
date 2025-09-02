@@ -27,6 +27,7 @@ As a challenge author, it is highly recommended to include a solver to assist pa
   - `static-attachment-with-compose/` - For challenges requiring Docker Compose setup
   - `static-attachment-with-compose-traefik/` - For challenges requiring custom domain routing, host SNI, or Traefik reverse proxy integration
   - `static-container/` - For challenges that need one container per person/team 
+  - `dynamic-container/` - For challenges that need dynamic container per person/team
 
 - **⚠️ Hints in challenge.yml:** You can add hints in your `challenge.yml` file if desired, but keep in mind that these hints will automatically become public on the platform once the challenge is published and will be visible to all participants.
 
