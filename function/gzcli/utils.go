@@ -651,7 +651,7 @@ func handleChallengeAttachments(challengeConf ChallengeYaml, challengeData *gzap
 func handleLocalAttachment(challengeConf ChallengeYaml, challengeData *gzapi.Challenge, api *gzapi.GZAPI) error {
 	log.InfoH3("Creating local attachment for %s", challengeConf.Name)
 
-	zipFilename := NormalizeFileName(*challengeConf.Provide) + ".zip"
+	zipFilename := "dist.zip"
 	zipOutput := filepath.Join(challengeConf.Cwd, zipFilename)
 	attachmentPath := filepath.Join(challengeConf.Cwd, *challengeConf.Provide)
 
@@ -670,7 +670,8 @@ func handleLocalAttachment(challengeConf ChallengeYaml, challengeData *gzapi.Cha
 
 	// Create a unique attachment file for this challenge to avoid hash conflicts
 	originalFilePath := filepath.Join(challengeConf.Cwd, *challengeConf.Provide)
-	uniqueFilename := fmt.Sprintf("%s_%s", challengeConf.Name, *challengeConf.Provide)
+	baseFilename := filepath.Base(*challengeConf.Provide)
+	uniqueFilename := fmt.Sprintf("%s_%s", challengeConf.Name, baseFilename)
 	uniqueFilePath := filepath.Join(challengeConf.Cwd, uniqueFilename)
 
 	log.InfoH3("Creating unique attachment file: %s", uniqueFilePath)

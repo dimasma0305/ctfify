@@ -98,7 +98,17 @@ func (g *Game) Delete() error {
 }
 
 func (g *Game) Update(game *Game) error {
-	return g.CS.put(fmt.Sprintf("/api/edit/games/%d", g.Id), game, nil)
+	// Create a copy to avoid modifying the original
+	gameCopy := *game
+	
+	// Convert all time fields to UTC to avoid PostgreSQL timezone issues
+	gameCopy.Start.Time = gameCopy.Start.Time.UTC()
+	gameCopy.End.Time = gameCopy.End.Time.UTC()
+	if !gameCopy.WriteupDeadline.Time.IsZero() {
+		gameCopy.WriteupDeadline.Time = gameCopy.WriteupDeadline.Time.UTC()
+	}
+	
+	return g.CS.put(fmt.Sprintf("/api/edit/games/%d", g.Id), &gameCopy, nil)
 }
 
 func (g *Game) UploadPoster(poster string) (string, error) {

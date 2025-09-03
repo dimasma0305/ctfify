@@ -1,6 +1,7 @@
 # CTF Challenge Maker & Writeup Submission Guide
 
 Format flag: `.*{.*}`
+Maximum flag length: `64`
 
 ## Important Dates
 
