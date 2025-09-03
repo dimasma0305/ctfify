@@ -29,3 +29,7 @@ func (api *GZAPI) Users() ([]*User, error) {
 	}
 	return users.Data, nil
 }
+
+func (api *GZAPI) JoinGame(gameId int, joinModel *GameJoinModel) error {
+	return api.post(fmt.Sprintf("/api/game/%d", gameId), joinModel, nil)
+}

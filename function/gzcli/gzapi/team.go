@@ -30,6 +30,14 @@ func (cs *GZAPI) CreateTeam(teamForm *TeamForm) error {
 	return nil
 }
 
+func (cs *GZAPI) GetTeams() ([]*Team, error) {
+	var team []*Team
+	if err := cs.get(fmt.Sprintf("/api/team/"), &team); err != nil {
+		return nil, err
+	}
+	return team, nil
+}
+
 func (cs *GZAPI) Teams() ([]*Team, error) {
 	var teams struct {
 		Data []*Team `json:"data"`

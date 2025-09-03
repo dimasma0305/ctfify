@@ -15,15 +15,20 @@ import (
 )
 
 type tcommandFlags struct {
-	initFlag         bool
-	syncFlag         bool
-	ctftimeFlag      bool
-	scriptFlag       string
-	createTeamsFlag  string
-	createTeamsEmail string
-	deleteUsersFlag  bool
-	updateGameFlag   bool
-	genStructureFlag bool
+	initFlag              bool
+	syncFlag              bool
+	ctftimeFlag           bool
+	scriptFlag            string
+	createTeamsFlag       string
+	createTeamsEmail      string
+	registerTeamsFlag     string
+	registerTeamsEmail    string
+	registerTeamsGame     string
+	registerTeamsDivision string
+	registerTeamsInvite   string
+	deleteUsersFlag       bool
+	updateGameFlag        bool
+	genStructureFlag      bool
 	// Init-related flags
 	initUrl            string
 	initPublicEntry    string
@@ -129,8 +134,13 @@ func init() {
 	flags.BoolVar(&commandFlags.syncFlag, "sync", false, "Synchronize CTF data")
 	flags.BoolVar(&commandFlags.ctftimeFlag, "ctftime-scoreboard", false, "Generate CTFTime scoreboard feed")
 	flags.StringVar(&commandFlags.scriptFlag, "run-script", "", "Execute custom script")
-	flags.StringVar(&commandFlags.createTeamsFlag, "create-teams", "", "Batch create teams")
-	flags.StringVar(&commandFlags.createTeamsEmail, "create-teams-and-send-email", "", "Create teams and send emails")
+	flags.StringVar(&commandFlags.createTeamsFlag, "create-teams", "", "Batch create teams [RealName, Email, TeamName]")
+	flags.StringVar(&commandFlags.createTeamsEmail, "create-teams-and-send-email", "", "Create teams and send emails [RealName, Email, TeamName]")
+	flags.StringVar(&commandFlags.registerTeamsFlag, "register-teams", "", "Create teams from CSV and register them to CTF game (use with --game, --division, --invite)")
+	flags.StringVar(&commandFlags.registerTeamsEmail, "register-teams-and-send-email", "", "Create teams from CSV, send emails, and register to CTF game (use with --game, --division, --invite)")
+	flags.StringVar(&commandFlags.registerTeamsGame, "game", "", "Game title to register teams to (required for --register-teams)")
+	flags.StringVar(&commandFlags.registerTeamsDivision, "division", "", "Division for team registration (optional)")
+	flags.StringVar(&commandFlags.registerTeamsInvite, "invite", "", "Invitation code for team registration (optional)")
 	flags.BoolVar(&commandFlags.deleteUsersFlag, "delete-all-user", false, "Remove all users")
 	flags.BoolVar(&commandFlags.updateGameFlag, "update-game", false, "Update the game")
 

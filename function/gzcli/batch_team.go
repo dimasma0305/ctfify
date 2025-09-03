@@ -28,17 +28,18 @@ type TeamCreds struct {
 
 // CreteTeamAndUser creates a team and user, ensuring the team name is unique and within the specified length.
 func (gz *GZ) CreteTeamAndUser(teamCreds *TeamCreds, config *Config, existingTeamNames, existingUserNames map[string]struct{}, credsCache []*TeamCreds, isSendEmail bool) (*TeamCreds, error) {
+	log.Info("Creating user %s with team %s", teamCreds.Username, teamCreds.TeamName)
 	var api *gzapi.GZAPI
 	var currentCreds *TeamCreds
 	password, err := password.Generate(24, 10, 0, false, false)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate password: %v", err)
 	}
 
 	// Generate a unique username
 	username, err := generateUsername(teamCreds.Username, 15, existingUserNames)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate username: %v", err)
 	}
 
 	// Normalize the team name
@@ -80,7 +81,7 @@ func (gz *GZ) CreteTeamAndUser(teamCreds *TeamCreds, config *Config, existingTea
 			Password: currentCreds.Password,
 		})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to register: %v", err)
 		}
 	}
 
@@ -99,9 +100,15 @@ func (gz *GZ) CreteTeamAndUser(teamCreds *TeamCreds, config *Config, existingTea
 	}
 	currentCreds.IsTeamCreated = true
 
+	// get environt URL
+	environtURL := os.Getenv("URL")
+	if environtURL == "" {
+		environtURL = config.Url
+	}
+
 	// Send credentials via email if enabled in the config
 	if isSendEmail && !currentCreds.IsEmailAlreadySent {
-		if err := sendEmail(teamCreds.Username, config.Url, currentCreds); err != nil {
+		if err := sendEmail(teamCreds.Username, environtURL, currentCreds); err != nil {
 			log.ErrorH2("Failed to send email to %s: %v", currentCreds.Email, err)
 		}
 		log.InfoH2("Successfully sending email to %s", currentCreds.Email)
@@ -109,6 +116,20 @@ func (gz *GZ) CreteTeamAndUser(teamCreds *TeamCreds, config *Config, existingTea
 	} else {
 		log.ErrorH2("Email to %s already sended before", currentCreds.Email)
 	}
+
+	// get team info
+	team, err := api.GetTeams()
+	if err != nil {
+		log.Error("%s", err.Error())
+	}
+
+	if err := api.JoinGame(config.Event.Id, &gzapi.GameJoinModel{
+		TeamId:     team[0].Id,
+		InviteCode: config.Event.InviteCode,
+	}); err != nil {
+		log.Error("%s", err.Error())
+	}
+	log.InfoH2("Successfully joining team %s to game %s", team[0].Name, config.Event.Title)
 
 	return currentCreds, nil
 }

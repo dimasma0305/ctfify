@@ -4,6 +4,7 @@ SUDO ?=
 WATCHER_PID_FILE=.gzctf/.watcher.pid
 GITPULL_PID_FILE=.gzctf/.gitpull.pid
 WATCHER_LOG_FILE=.gzctf/watcher.log
+PUBLIC_URL="<public-url>"
 
 sync:
 	${SUDO} ${BIN} gzcli --sync
@@ -43,10 +44,10 @@ watch-logs:
 	${SUDO} ${BIN} gzcli --watch-logs
 
 register-all-user:
-	${SUDO} ${BIN} gzcli --create-teams ${CSV}
+	${SUDO} URL=${PUBLIC_URL} ${BIN} gzcli --create-teams ${CSV}
 
-send-email:
-	${SUDO} ${BIN} gzcli --create-teams-and-send-email ${CSV}
+register-all-user-and-send-email:
+	${SUDO} URL=${PUBLIC_URL} ${BIN} gzcli --create-teams-and-send-email ${CSV}
 
 flush-cache:
 	(cd .gzctf && ${SUDO} docker compose exec -uroot cache redis-cli FLUSHALL)

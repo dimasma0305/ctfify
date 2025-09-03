@@ -100,14 +100,14 @@ func (g *Game) Delete() error {
 func (g *Game) Update(game *Game) error {
 	// Create a copy to avoid modifying the original
 	gameCopy := *game
-	
+
 	// Convert all time fields to UTC to avoid PostgreSQL timezone issues
 	gameCopy.Start.Time = gameCopy.Start.Time.UTC()
 	gameCopy.End.Time = gameCopy.End.Time.UTC()
 	if !gameCopy.WriteupDeadline.Time.IsZero() {
 		gameCopy.WriteupDeadline.Time = gameCopy.WriteupDeadline.Time.UTC()
 	}
-	
+
 	return g.CS.put(fmt.Sprintf("/api/edit/games/%d", g.Id), &gameCopy, nil)
 }
 
@@ -134,4 +134,19 @@ func (cs *GZAPI) CreateGame(game CreateGameForm) (*Game, error) {
 	}
 	data.CS = cs
 	return data, nil
+}
+
+type GameJoinModel struct {
+	TeamId     int    `json:"teamId"`
+	Division   string `json:"division,omitempty"`
+	InviteCode string `json:"inviteCode,omitempty"`
+}
+
+func (g *Game) JoinGame(teamId int, division string, inviteCode string) error {
+	joinModel := &GameJoinModel{
+		TeamId:     teamId,
+		Division:   division,
+		InviteCode: inviteCode,
+	}
+	return g.CS.post(fmt.Sprintf("/api/game/%d", g.Id), joinModel, nil)
 }
