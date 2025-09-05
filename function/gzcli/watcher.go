@@ -38,8 +38,8 @@ type Watcher struct {
 	updatingMu           sync.RWMutex
 	watchedChallenges    map[string]bool // challengeName -> is being watched
 	watchedMu            sync.RWMutex
-	daemonContext        *daemon.Context   // Daemon context for process management
-	watchedChallengeDirs map[string]string // challengeName -> cwd
+	daemonContext        *daemon.Context          // Daemon context for process management
+	watchedChallengeDirs map[string]string        // challengeName -> cwd
 	challengeConfigs     map[string]ChallengeYaml // challengeName -> full config (for scripts)
 	challengeConfigsMu   sync.RWMutex
 }
@@ -323,7 +323,7 @@ func (w *Watcher) addChallengeToWatch(challenge ChallengeYaml) error {
 	w.watchedChallenges[challenge.Name] = true
 	w.watchedChallengeDirs[challenge.Name] = challenge.Cwd
 	w.watchedMu.Unlock()
-	
+
 	w.challengeConfigsMu.Lock()
 	w.challengeConfigs[challenge.Name] = challenge
 	w.challengeConfigsMu.Unlock()
@@ -463,7 +463,7 @@ func (w *Watcher) handleChallengeRemovalByDir(removedDir string) {
 		w.challengeConfigsMu.RLock()
 		removedChallenge, hasStoredConfig := w.challengeConfigs[removedChallengeName]
 		w.challengeConfigsMu.RUnlock()
-		
+
 		if !hasStoredConfig {
 			// Fallback to minimal challenge struct if no stored config
 			removedChallenge = ChallengeYaml{
@@ -597,7 +597,7 @@ func (w *Watcher) undeployAndRemoveChallenge(challenge ChallengeYaml) {
 	delete(w.watchedChallenges, challenge.Name)
 	delete(w.watchedChallengeDirs, challenge.Name)
 	w.watchedMu.Unlock()
-	
+
 	// Remove stored configuration
 	w.challengeConfigsMu.Lock()
 	delete(w.challengeConfigs, challenge.Name)

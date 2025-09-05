@@ -652,8 +652,13 @@ func handleLocalAttachment(challengeConf ChallengeYaml, challengeData *gzapi.Cha
 	log.InfoH3("Creating local attachment for %s", challengeConf.Name)
 
 	zipFilename := "dist.zip"
-	zipOutput := filepath.Join(challengeConf.Cwd, zipFilename)
+	// Write zip to temp dir to avoid triggering watcher events inside challenge dir
+	zipOutput := filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s", NormalizeFileName(challengeConf.Name), zipFilename))
 	attachmentPath := filepath.Join(challengeConf.Cwd, *challengeConf.Provide)
+
+	// Artifact path that will be used for upload/uniqueness processing
+	var artifactPath string
+	var artifactBase string
 
 	log.InfoH3("Checking attachment path: %s", attachmentPath)
 	if info, err := os.Stat(attachmentPath); err != nil || info.IsDir() {
@@ -663,21 +668,23 @@ func handleLocalAttachment(challengeConf ChallengeYaml, challengeData *gzapi.Cha
 			return fmt.Errorf("zip creation failed for %s: %w", challengeConf.Name, err)
 		}
 		log.InfoH3("Successfully created zip file: %s", zipOutput)
-		challengeConf.Provide = &zipFilename
+		// Use the temp zip directly as the artifact, do not write into challenge directory
+		artifactPath = zipOutput
+		artifactBase = filepath.Base(zipOutput)
 	} else {
 		log.InfoH3("Using existing file: %s", attachmentPath)
+		artifactPath = attachmentPath
+		artifactBase = filepath.Base(attachmentPath)
 	}
 
 	// Create a unique attachment file for this challenge to avoid hash conflicts
-	originalFilePath := filepath.Join(challengeConf.Cwd, *challengeConf.Provide)
-	baseFilename := filepath.Base(*challengeConf.Provide)
-	uniqueFilename := fmt.Sprintf("%s_%s", challengeConf.Name, baseFilename)
-	uniqueFilePath := filepath.Join(challengeConf.Cwd, uniqueFilename)
+	uniqueFilename := fmt.Sprintf("%s_%s", challengeConf.Name, artifactBase)
+	uniqueFilePath := filepath.Join(os.TempDir(), NormalizeFileName(uniqueFilename))
 
 	log.InfoH3("Creating unique attachment file: %s", uniqueFilePath)
 
-	// Copy the original file and append challenge metadata to make it unique
-	if err := createUniqueAttachmentFile(originalFilePath, uniqueFilePath, challengeConf.Name); err != nil {
+	// Copy the artifact and append challenge metadata to make it unique
+	if err := createUniqueAttachmentFile(artifactPath, uniqueFilePath, challengeConf.Name); err != nil {
 		log.Error("Failed to create unique attachment file for %s: %v", challengeConf.Name, err)
 		return fmt.Errorf("unique file creation failed for %s: %w", challengeConf.Name, err)
 	}
