@@ -25,7 +25,7 @@ import (
 )
 
 var (
-	fileNameNormalizer = regexp.MustCompile(`[^a-zA-Z0-9\-_ ]+`)
+	fileNameNormalizer = regexp.MustCompile(`[^a-zA-Z0-9\-_]+`)
 	validTypes         = map[string]struct{}{
 		"StaticAttachment":  {},
 		"StaticContainer":   {},
@@ -677,9 +677,12 @@ func handleLocalAttachment(challengeConf ChallengeYaml, challengeData *gzapi.Cha
 		artifactBase = filepath.Base(attachmentPath)
 	}
 
-	// Create a unique attachment file for this challenge to avoid hash conflicts
-	uniqueFilename := fmt.Sprintf("%s_%s", challengeConf.Name, artifactBase)
-	uniqueFilePath := filepath.Join(os.TempDir(), NormalizeFileName(uniqueFilename))
+	// Create a unique attachment file name while preserving extension
+	ext := filepath.Ext(artifactBase)
+	nameNoExt := strings.TrimSuffix(artifactBase, ext)
+	sanitizedBase := NormalizeFileName(fmt.Sprintf("%s_%s", challengeConf.Name, nameNoExt))
+	uniqueFilename := sanitizedBase + ext
+	uniqueFilePath := filepath.Join(os.TempDir(), uniqueFilename)
 
 	log.InfoH3("Creating unique attachment file: %s", uniqueFilePath)
 
