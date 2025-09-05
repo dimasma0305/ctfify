@@ -796,6 +796,9 @@ func updateChallengeFlags(config *Config, challengeConf ChallengeYaml, challenge
 var shell = os.Getenv("SHELL")
 
 func runScript(challengeConf ChallengeYaml, script string) error {
+	if shell == "" {
+		shell = "/bin/sh"
+	}
 	if challengeConf.Scripts[script] == "" {
 		return nil
 	}
