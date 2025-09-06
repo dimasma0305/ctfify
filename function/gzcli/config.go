@@ -189,17 +189,17 @@ func GetChallengesYaml(config *Config) ([]ChallengeYaml, error) {
 
 			err := filepath.Walk(categoryPath, func(path string, info os.FileInfo, err error) error {
 				if err != nil || info.IsDir() || !challengeFileRegex.MatchString(info.Name()) {
-					return err
+					return fmt.Errorf("walk error: %w %s", err, path)
 				}
 
 				content, err := os.ReadFile(path)
 				if err != nil {
-					return fmt.Errorf("reading file error: %w", err)
+					return fmt.Errorf("reading file error: %w %s", err, path)
 				}
 
 				var challenge ChallengeYaml
 				if err := ParseYamlFromBytes(content, &challenge); err != nil {
-					return err
+					return fmt.Errorf("yaml parse error: %w %s", err, path)
 				}
 
 				challenge.Category = category
@@ -212,7 +212,7 @@ func GetChallengesYaml(config *Config) ([]ChallengeYaml, error) {
 
 				t, err := template.New("chall").Parse(string(content))
 				if err != nil {
-					log.ErrorH2("template error: %v", err)
+					log.ErrorH2("template error: %v %s", err, path)
 					return nil
 				}
 
@@ -222,11 +222,11 @@ func GetChallengesYaml(config *Config) ([]ChallengeYaml, error) {
 					"slug": generateSlug(challenge),
 				})
 				if err != nil {
-					return fmt.Errorf("template execution error: %w", err)
+					return fmt.Errorf("template execution error: %w %s", err, path)
 				}
 
 				if err := ParseYamlFromBytes(buf.Bytes(), &challenge); err != nil {
-					return fmt.Errorf("yaml parse error: %w", err)
+					return fmt.Errorf("yaml parse error: %w %s", err, path)
 				}
 
 				select {
@@ -238,7 +238,7 @@ func GetChallengesYaml(config *Config) ([]ChallengeYaml, error) {
 
 			if err != nil {
 				select {
-				case errChan <- fmt.Errorf("category %s: %w", category, err):
+				case errChan <- fmt.Errorf("category %s: %w %s", category, err, categoryPath):
 				default:
 				}
 			}
