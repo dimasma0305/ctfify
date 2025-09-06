@@ -189,7 +189,7 @@ func GetChallengesYaml(config *Config) ([]ChallengeYaml, error) {
 
 			err := filepath.Walk(categoryPath, func(path string, info os.FileInfo, err error) error {
 				if err != nil || info.IsDir() || !challengeFileRegex.MatchString(info.Name()) {
-					return err
+					return fmt.Errorf("walk error: %w %s", err, path)
 				}
 
 				content, err := os.ReadFile(path)
@@ -199,7 +199,7 @@ func GetChallengesYaml(config *Config) ([]ChallengeYaml, error) {
 
 				var challenge ChallengeYaml
 				if err := ParseYamlFromBytes(content, &challenge); err != nil {
-					return err
+					return fmt.Errorf("yaml parse error: %w %s", err, path)
 				}
 
 				challenge.Category = category
@@ -238,7 +238,7 @@ func GetChallengesYaml(config *Config) ([]ChallengeYaml, error) {
 
 			if err != nil {
 				select {
-				case errChan <- fmt.Errorf("category %s: %w", category, err):
+				case errChan <- fmt.Errorf("category %s: %w ", category, err):
 				default:
 				}
 			}
