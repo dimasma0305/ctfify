@@ -189,7 +189,7 @@ func GetChallengesYaml(config *Config) ([]ChallengeYaml, error) {
 
 			err := filepath.Walk(categoryPath, func(path string, info os.FileInfo, err error) error {
 				if err != nil || info.IsDir() || !challengeFileRegex.MatchString(info.Name()) {
-					return fmt.Errorf("walk error: %w %s", err, path)
+					return err
 				}
 
 				content, err := os.ReadFile(path)
