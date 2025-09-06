@@ -238,7 +238,7 @@ func GetChallengesYaml(config *Config) ([]ChallengeYaml, error) {
 
 			if err != nil {
 				select {
-				case errChan <- fmt.Errorf("category %s: %w", captegory, err):
+				case errChan <- fmt.Errorf("category %s: %w", category, err):
 				default:
 				}
 			}
