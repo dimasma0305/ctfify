@@ -797,13 +797,23 @@ func updateChallengeFlags(config *Config, challengeConf ChallengeYaml, challenge
 	return nil
 }
 
-var shell = os.Getenv("SHELL")
+var (
+	shell     string
+	shellOnce sync.Once
+)
+
+// getShell returns the shell to use for script execution in a thread-safe way
+func getShell() string {
+	shellOnce.Do(func() {
+		shell = os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/sh"
+		}
+	})
+	return shell
+}
 
 func runScript(challengeConf ChallengeYaml, script string) error {
-	if shell == "" {
-		shell = "/bin/sh"
-	}
-
 	scriptValue, exists := challengeConf.Scripts[script]
 	if !exists {
 		return nil
@@ -827,16 +837,110 @@ func runScript(challengeConf ChallengeYaml, script string) error {
 	return runShell(command, challengeConf.Cwd)
 }
 
+// Script execution timeout constants
+const (
+	DefaultScriptTimeout = 5 * time.Minute
+	MaxScriptTimeout     = 30 * time.Minute
+)
+
 func runShell(script string, cwd string) error {
-	cmd := exec.Command(shell, "-c", script)
+	cmd := exec.Command(getShell(), "-c", script)
 	cmd.Dir = cwd
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
+// runShellWithContext executes a shell command with context cancellation support
+func runShellWithContext(ctx context.Context, script string, cwd string) error {
+	cmd := exec.CommandContext(ctx, getShell(), "-c", script)
+	cmd.Dir = cwd
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// runShellWithTimeout executes a shell command with timeout protection
+func runShellWithTimeout(ctx context.Context, script string, cwd string, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = DefaultScriptTimeout
+	}
+	if timeout > MaxScriptTimeout {
+		timeout = MaxScriptTimeout
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	return runShellWithContext(timeoutCtx, script, cwd)
+}
+
+// runShellForInterval executes a shell command for interval scripts with proper output management
+func runShellForInterval(ctx context.Context, script string, cwd string, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = DefaultScriptTimeout
+	}
+	if timeout > MaxScriptTimeout {
+		timeout = MaxScriptTimeout
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(timeoutCtx, getShell(), "-c", script)
+	cmd.Dir = cwd
+
+	// For interval scripts, capture output for logging instead of stdout
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+
+	// Log output if present
+	if stdout.Len() > 0 {
+		output := strings.TrimSpace(stdout.String())
+		if output != "" {
+			log.InfoH3("Script output: %s", output)
+		}
+	}
+	if stderr.Len() > 0 {
+		errOutput := strings.TrimSpace(stderr.String())
+		if errOutput != "" {
+			log.Error("Script error output: %s", errOutput)
+		}
+	}
+
+	return err
+}
+
+// Interval validation constants
+const (
+	MinInterval = 30 * time.Second
+	MaxInterval = 24 * time.Hour
+)
+
+// validateInterval validates that an interval is within acceptable bounds
+func validateInterval(interval time.Duration, scriptName string) bool {
+	if interval < MinInterval {
+		log.Error("Interval %v too short for script '%s', minimum is %v", interval, scriptName, MinInterval)
+		return false
+	}
+	if interval > MaxInterval {
+		log.Error("Interval %v too long for script '%s', maximum is %v", interval, scriptName, MaxInterval)
+		return false
+	}
+	return true
+}
+
 // runIntervalScript executes a script at regular intervals with context cancellation
 func runIntervalScript(ctx context.Context, challengeConf ChallengeYaml, scriptName, command string, interval time.Duration) {
+	// Validate interval
+	if !validateInterval(interval, scriptName) {
+		log.Error("Invalid interval for script '%s' in challenge '%s', skipping", scriptName, challengeConf.Name)
+		return
+	}
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -849,10 +953,15 @@ func runIntervalScript(ctx context.Context, challengeConf ChallengeYaml, scriptN
 			return
 		case <-ticker.C:
 			log.InfoH3("Executing interval script '%s' for challenge '%s'", scriptName, challengeConf.Name)
-			if err := runShell(command, challengeConf.Cwd); err != nil {
-				log.Error("Interval script '%s' failed for challenge '%s': %v", scriptName, challengeConf.Name, err)
+
+			// Use context-aware execution with proper timeout and output handling
+			start := time.Now()
+			if err := runShellForInterval(ctx, command, challengeConf.Cwd, DefaultScriptTimeout); err != nil {
+				duration := time.Since(start)
+				log.Error("Interval script '%s' failed for challenge '%s' after %v: %v", scriptName, challengeConf.Name, duration, err)
 			} else {
-				log.InfoH3("Interval script '%s' completed successfully for challenge '%s'", scriptName, challengeConf.Name)
+				duration := time.Since(start)
+				log.InfoH3("Interval script '%s' completed successfully for challenge '%s' in %v", scriptName, challengeConf.Name, duration)
 			}
 		}
 	}

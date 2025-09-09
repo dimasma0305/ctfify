@@ -21,6 +21,15 @@ import (
 	"github.com/sevlyar/go-daemon"
 )
 
+// ScriptMetrics tracks execution statistics for scripts
+type ScriptMetrics struct {
+	LastExecution  time.Time
+	ExecutionCount int64
+	LastError      error
+	LastDuration   time.Duration
+	TotalDuration  time.Duration
+}
+
 type Watcher struct {
 	gz                   *GZ
 	watcher              *fsnotify.Watcher
@@ -44,6 +53,8 @@ type Watcher struct {
 	challengeConfigsMu   sync.RWMutex
 	intervalScripts      map[string]map[string]context.CancelFunc // challengeName -> scriptName -> cancelFunc
 	intervalScriptsMu    sync.RWMutex
+	scriptMetrics        map[string]map[string]*ScriptMetrics // challengeName -> scriptName -> metrics
+	scriptMetricsMu      sync.RWMutex
 }
 
 type WatcherConfig struct {
@@ -120,6 +131,7 @@ func NewWatcher(gz *GZ) (*Watcher, error) {
 		watchedChallengeDirs: make(map[string]string),
 		challengeConfigs:     make(map[string]ChallengeYaml),
 		intervalScripts:      make(map[string]map[string]context.CancelFunc),
+		scriptMetrics:        make(map[string]map[string]*ScriptMetrics),
 	}, nil
 }
 
@@ -252,12 +264,18 @@ func (w *Watcher) startWatcher() error {
 	return nil
 }
 
-// Stop stops the file watcher
-func (w *Watcher) Stop() error {
-	log.Info("Stopping file watcher...")
+// stopAllIntervalScriptsWithTimeout stops all interval scripts with a timeout
+func (w *Watcher) stopAllIntervalScriptsWithTimeout(timeout time.Duration) {
+	log.Info("Stopping all interval scripts with timeout %v...", timeout)
 
-	// Stop all interval scripts first
 	w.intervalScriptsMu.Lock()
+	defer w.intervalScriptsMu.Unlock()
+
+	if len(w.intervalScripts) == 0 {
+		return
+	}
+
+	// Cancel all scripts
 	for challengeName := range w.intervalScripts {
 		log.InfoH3("Stopping all interval scripts for challenge '%s'", challengeName)
 		for scriptName, cancel := range w.intervalScripts[challengeName] {
@@ -265,13 +283,40 @@ func (w *Watcher) Stop() error {
 			cancel()
 		}
 	}
-	w.intervalScripts = make(map[string]map[string]context.CancelFunc) // Clear all
-	w.intervalScriptsMu.Unlock()
 
+	// Clear all tracking
+	w.intervalScripts = make(map[string]map[string]context.CancelFunc)
+
+	// Give scripts time to finish
+	if timeout > 0 {
+		log.InfoH3("Waiting up to %v for scripts to finish...", timeout)
+		time.Sleep(timeout)
+	}
+}
+
+// Stop stops the file watcher with improved graceful shutdown
+func (w *Watcher) Stop() error {
+	log.Info("Stopping file watcher...")
+
+	// Stop all interval scripts with timeout
+	w.stopAllIntervalScriptsWithTimeout(5 * time.Second)
+
+	// Cancel context after stopping interval scripts
 	w.cancel()
 
-	// Wait for all goroutines to finish
-	w.wg.Wait()
+	// Wait for all goroutines to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		w.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.InfoH3("All goroutines finished successfully")
+	case <-time.After(10 * time.Second):
+		log.Error("Timeout waiting for goroutines to finish")
+	}
 
 	if w.watcher != nil {
 		err := w.watcher.Close()
@@ -1104,8 +1149,14 @@ func (w *Watcher) getPendingUpdate(challengeName string) (string, bool) {
 	return filePath, exists
 }
 
-// startIntervalScript starts an interval script for a challenge with proper tracking
+// startIntervalScript starts an interval script for a challenge with proper tracking and validation
 func (w *Watcher) startIntervalScript(challengeName, scriptName string, challenge ChallengeYaml, command string, interval time.Duration) {
+	// Validate interval before starting
+	if !validateInterval(interval, scriptName) {
+		log.Error("Invalid interval for script '%s' in challenge '%s', skipping", scriptName, challengeName)
+		return
+	}
+
 	w.intervalScriptsMu.Lock()
 	defer w.intervalScriptsMu.Unlock()
 
@@ -1119,6 +1170,16 @@ func (w *Watcher) startIntervalScript(challengeName, scriptName string, challeng
 		log.InfoH3("Stopping existing interval script '%s' for challenge '%s'", scriptName, challengeName)
 		cancel()
 	}
+
+	// Initialize metrics if needed
+	w.scriptMetricsMu.Lock()
+	if w.scriptMetrics[challengeName] == nil {
+		w.scriptMetrics[challengeName] = make(map[string]*ScriptMetrics)
+	}
+	if w.scriptMetrics[challengeName][scriptName] == nil {
+		w.scriptMetrics[challengeName][scriptName] = &ScriptMetrics{}
+	}
+	w.scriptMetricsMu.Unlock()
 
 	// Create new context for this interval script
 	ctx, cancel := context.WithCancel(w.ctx)
@@ -1164,10 +1225,6 @@ func (w *Watcher) stopAllIntervalScripts(challengeName string) {
 
 // runScriptWithIntervalSupport runs a script with proper interval script lifecycle management
 func (w *Watcher) runScriptWithIntervalSupport(challengeConf ChallengeYaml, script string) error {
-	if shell == "" {
-		shell = "/bin/sh"
-	}
-
 	scriptValue, exists := challengeConf.Scripts[script]
 	if !exists {
 		return nil
@@ -1192,9 +1249,50 @@ func (w *Watcher) runScriptWithIntervalSupport(challengeConf ChallengeYaml, scri
 	// For non-interval scripts, stop any existing interval script with the same name
 	w.stopIntervalScript(challengeConf.Name, script)
 
-	// Run simple one-time script
+	// Run simple one-time script with timeout protection
 	log.InfoH2("Running:\n%s", command)
-	return runShell(command, challengeConf.Cwd)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultScriptTimeout)
+	defer cancel()
+
+	return runShellWithContext(ctx, command, challengeConf.Cwd)
+}
+
+// GetScriptMetrics returns script execution metrics for monitoring
+func (w *Watcher) GetScriptMetrics() map[string]map[string]*ScriptMetrics {
+	w.scriptMetricsMu.RLock()
+	defer w.scriptMetricsMu.RUnlock()
+
+	// Create a copy to avoid concurrent map access
+	result := make(map[string]map[string]*ScriptMetrics)
+	for challengeName, challengeMetrics := range w.scriptMetrics {
+		result[challengeName] = make(map[string]*ScriptMetrics)
+		for scriptName, metrics := range challengeMetrics {
+			// Create a copy of the metrics
+			result[challengeName][scriptName] = &ScriptMetrics{
+				LastExecution:  metrics.LastExecution,
+				ExecutionCount: metrics.ExecutionCount,
+				LastError:      metrics.LastError,
+				LastDuration:   metrics.LastDuration,
+				TotalDuration:  metrics.TotalDuration,
+			}
+		}
+	}
+	return result
+}
+
+// GetActiveIntervalScripts returns a list of currently running interval scripts
+func (w *Watcher) GetActiveIntervalScripts() map[string][]string {
+	w.intervalScriptsMu.RLock()
+	defer w.intervalScriptsMu.RUnlock()
+
+	result := make(map[string][]string)
+	for challengeName, scripts := range w.intervalScripts {
+		result[challengeName] = make([]string, 0, len(scripts))
+		for scriptName := range scripts {
+			result[challengeName] = append(result[challengeName], scriptName)
+		}
+	}
+	return result
 }
 
 // newChallengeCheckLoop periodically checks for new challenges
