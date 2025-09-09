@@ -46,6 +46,13 @@ type tcommandFlags struct {
 	watchLogsFlag     bool
 	watchPidFile      string
 	watchLogFile      string
+	// Watcher client flags
+	watcherClientAction     string
+	watcherClientChallenge  string
+	watcherClientScript     string
+	watcherClientLimit      int
+	watcherClientSocketPath string
+	watcherClientInterval   time.Duration
 	// Git-related flags
 	watchGitPull         bool
 	watchGitPullInterval time.Duration
@@ -63,7 +70,17 @@ var gzcliCmd = &cobra.Command{
 For CTF initialization, you can provide values via flags or be prompted for input:
   --init-url              URL for the new CTF instance  
   --init-public-entry     Public entry point for the new CTF instance
-  --init-discord-webhook  Discord webhook URL for notifications`,
+  --init-discord-webhook  Discord webhook URL for notifications
+
+Watcher Client Commands:
+  --watcher-client status                     Show watcher daemon status
+  --watcher-client list                       List watched challenges
+  --watcher-client logs                       View database logs
+  --watcher-client live-logs                  Stream live database logs (use --watcher-interval to set refresh rate)
+  --watcher-client metrics                    View script execution metrics
+  --watcher-client executions                 View script execution history
+  --watcher-client stop-script                Stop interval script (requires --watcher-challenge and --watcher-script)
+  --watcher-client restart                    Restart challenge (requires --watcher-challenge)`,
 	Run: func(cmd *cobra.Command, args []string) {
 		switch {
 		case commandFlags.initFlag:
@@ -118,6 +135,9 @@ For CTF initialization, you can provide values via flags or be prompted for inpu
 		case commandFlags.watchLogsFlag:
 			handleWatchLogs()
 
+		case commandFlags.watcherClientAction != "":
+			handleWatcherClient()
+
 		default:
 			cmd.Help()
 		}
@@ -162,6 +182,13 @@ func init() {
 	flags.StringSliceVar(&commandFlags.watchIgnore, "watch-ignore", []string{}, "Additional patterns to ignore")
 	flags.StringSliceVar(&commandFlags.watchPatterns, "watch-patterns", []string{}, "File patterns to watch (overrides default)")
 	flags.BoolVar(&commandFlags.watchStatusJSON, "watch-status-json", false, "Output watch status in JSON format")
+	// Watcher client flags
+	flags.StringVar(&commandFlags.watcherClientAction, "watcher-client", "", "Interact with running watcher daemon (status|list|logs|live-logs|metrics|stop-script|restart|executions)")
+	flags.StringVar(&commandFlags.watcherClientChallenge, "watcher-challenge", "", "Challenge name for watcher client operations")
+	flags.StringVar(&commandFlags.watcherClientScript, "watcher-script", "", "Script name for watcher client operations")
+	flags.IntVar(&commandFlags.watcherClientLimit, "watcher-limit", 50, "Limit for logs/executions queries")
+	flags.StringVar(&commandFlags.watcherClientSocketPath, "watcher-socket", "", "Custom watcher socket path")
+	flags.DurationVar(&commandFlags.watcherClientInterval, "watcher-interval", 2*time.Second, "Refresh interval for live logs")
 	// Git-related flags
 	flags.BoolVar(&commandFlags.watchGitPull, "watch-git-pull", true, "Enable automatic git pull (default: true)")
 	flags.DurationVar(&commandFlags.watchGitPullInterval, "watch-git-pull-interval", 1*time.Minute, "Git pull interval")
@@ -200,6 +227,8 @@ func handleWatchRun() {
 		GitPullEnabled:            commandFlags.watchGitPull,
 		GitPullInterval:           commandFlags.watchGitPullInterval,
 		GitRepository:             commandFlags.watchGitRepository,
+		DatabaseEnabled:           true,
+		SocketEnabled:             true,
 	}
 
 	// Override daemon settings if custom files specified
@@ -315,5 +344,165 @@ func handleWatchLogs() {
 	// Follow the log file
 	if err := watcher.FollowLogs(logFile); err != nil {
 		log.Fatal("Failed to follow logs: ", err)
+	}
+}
+
+func handleWatcherClient() {
+	client := gzcli.NewWatcherClient(commandFlags.watcherClientSocketPath)
+
+	switch commandFlags.watcherClientAction {
+	case "status":
+		if err := client.PrintStatus(); err != nil {
+			log.Fatal("Failed to get watcher status: ", err)
+		}
+
+	case "list":
+		if err := client.PrintChallenges(); err != nil {
+			log.Fatal("Failed to list challenges: ", err)
+		}
+
+	case "logs":
+		if err := client.PrintLogs(commandFlags.watcherClientLimit); err != nil {
+			log.Fatal("Failed to get logs: ", err)
+		}
+
+	case "live-logs":
+		if err := client.StreamLiveLogs(commandFlags.watcherClientLimit, commandFlags.watcherClientInterval); err != nil {
+			log.Fatal("Failed to stream live logs: ", err)
+		}
+
+	case "metrics":
+		if err := client.PrintMetrics(); err != nil {
+			log.Fatal("Failed to get metrics: ", err)
+		}
+
+	case "stop-script":
+		if commandFlags.watcherClientChallenge == "" || commandFlags.watcherClientScript == "" {
+			log.Fatal("Both --watcher-challenge and --watcher-script are required for stop-script action")
+		}
+
+		response, err := client.StopScript(commandFlags.watcherClientChallenge, commandFlags.watcherClientScript)
+		if err != nil {
+			log.Fatal("Failed to stop script: ", err)
+		}
+
+		if response.Success {
+			log.Info("✅ %s", response.Message)
+		} else {
+			log.Error("❌ %s", response.Error)
+		}
+
+	case "restart":
+		if commandFlags.watcherClientChallenge == "" {
+			log.Fatal("--watcher-challenge is required for restart action")
+		}
+
+		response, err := client.RestartChallenge(commandFlags.watcherClientChallenge)
+		if err != nil {
+			log.Fatal("Failed to restart challenge: ", err)
+		}
+
+		if response.Success {
+			log.Info("✅ %s", response.Message)
+		} else {
+			log.Error("❌ %s", response.Error)
+		}
+
+	case "executions":
+		response, err := client.GetScriptExecutions(commandFlags.watcherClientChallenge, commandFlags.watcherClientLimit)
+		if err != nil {
+			log.Fatal("Failed to get script executions: ", err)
+		}
+
+		if !response.Success {
+			log.Fatal("Get script executions failed: %s", response.Error)
+		}
+
+		fmt.Printf("📊 Script Executions (last %d entries)\n", commandFlags.watcherClientLimit)
+		fmt.Println("==========================================")
+
+		if data, ok := response.Data["executions"].([]interface{}); ok {
+			if len(data) == 0 {
+				fmt.Println("No script executions found.")
+				return
+			}
+
+			for _, execInterface := range data {
+				if execMap, ok := execInterface.(map[string]interface{}); ok {
+					timestamp := ""
+					if t, ok := execMap["timestamp"].(string); ok {
+						if parsed, err := time.Parse("2006-01-02T15:04:05Z", t); err == nil {
+							timestamp = parsed.Format("2006-01-02 15:04:05")
+						} else {
+							timestamp = t
+						}
+					}
+
+					challenge := ""
+					if c, ok := execMap["challenge"].(string); ok {
+						challenge = c
+					}
+
+					scriptName := ""
+					if s, ok := execMap["script_name"].(string); ok {
+						scriptName = s
+					}
+
+					// Handle duration - check for both duration field and potential nil/zero values
+					duration := ""
+					var durationNs float64 = 0
+					if d, ok := execMap["duration"].(float64); ok && d > 0 {
+						durationNs = d
+						if d >= 1000000000 { // >= 1 second
+							duration = fmt.Sprintf("%.1fs", d/1000000000)
+						} else if d >= 1000000 { // >= 1 millisecond
+							duration = fmt.Sprintf("%.0fms", d/1000000)
+						} else if d > 0 {
+							duration = fmt.Sprintf("%.0fμs", d/1000)
+						}
+					}
+
+					// Handle exit code - it might be nil for running scripts
+					exitCode := ""
+					hasExitCode := false
+					if ec, ok := execMap["exit_code"]; ok && ec != nil {
+						if exitCodeFloat, ok := ec.(float64); ok {
+							exitCode = fmt.Sprintf(" (exit %d)", int(exitCodeFloat))
+							hasExitCode = true
+						}
+					}
+
+					// Determine success - use exit code if available, otherwise check success field
+					success := "❌"
+					if hasExitCode {
+						// If we have an exit code, success is determined by exit code being 0
+						if exitCode == " (exit 0)" {
+							success = "✅"
+						}
+					} else if s, ok := execMap["success"].(bool); ok && s {
+						// Fall back to success field if no exit code
+						success = "✅"
+					} else if durationNs == 0 {
+						// If duration is 0, it might be a script that's still running or failed to start
+						success = "⏳"
+					}
+
+					// Format output
+					fmt.Printf("[%s] %s %s/%s", timestamp, success, challenge, scriptName)
+					if duration != "" {
+						fmt.Printf(" %s", duration)
+					}
+					if exitCode != "" {
+						fmt.Printf("%s", exitCode)
+					} else if success == "⏳" {
+						fmt.Printf(" (running)")
+					}
+					fmt.Println()
+				}
+			}
+		}
+
+	default:
+		log.Fatal("Invalid watcher client action. Valid actions: status, list, logs, live-logs, metrics, stop-script, restart, executions")
 	}
 }

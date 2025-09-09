@@ -2,9 +2,11 @@ package gzcli
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -18,6 +20,7 @@ import (
 	"github.com/dimasma0305/ctfify/function/log"
 	"github.com/fsnotify/fsnotify"
 	tail "github.com/hpcloud/tail"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/sevlyar/go-daemon"
 )
 
@@ -28,6 +31,59 @@ type ScriptMetrics struct {
 	LastError      error
 	LastDuration   time.Duration
 	TotalDuration  time.Duration
+	Interval       time.Duration `json:"interval,omitempty"` // For interval scripts
+	IsInterval     bool          `json:"is_interval"`        // Whether this is an interval script
+}
+
+// WatcherCommand represents commands that can be sent to the watcher via socket
+type WatcherCommand struct {
+	Action string                 `json:"action"`
+	Data   map[string]interface{} `json:"data,omitempty"`
+}
+
+// WatcherResponse represents responses from the watcher
+type WatcherResponse struct {
+	Success bool                   `json:"success"`
+	Message string                 `json:"message,omitempty"`
+	Data    map[string]interface{} `json:"data,omitempty"`
+	Error   string                 `json:"error,omitempty"`
+}
+
+// Database models for persistent storage
+type WatcherLog struct {
+	ID        int64     `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Level     string    `json:"level"`
+	Component string    `json:"component"`
+	Challenge string    `json:"challenge,omitempty"`
+	Script    string    `json:"script,omitempty"`
+	Message   string    `json:"message"`
+	Error     string    `json:"error,omitempty"`
+	Duration  int64     `json:"duration,omitempty"` // milliseconds
+}
+
+type ChallengeState struct {
+	ID            int64     `json:"id"`
+	ChallengeName string    `json:"challenge_name"`
+	Status        string    `json:"status"` // watching, updating, deploying, error
+	LastUpdate    time.Time `json:"last_update"`
+	ErrorMessage  string    `json:"error_message,omitempty"`
+	ScriptStates  string    `json:"script_states"` // JSON of active interval scripts
+}
+
+type ScriptExecution struct {
+	ID            int64     `json:"id"`
+	Timestamp     time.Time `json:"timestamp"`
+	ChallengeName string    `json:"challenge_name"`
+	ScriptName    string    `json:"script_name"`
+	ScriptType    string    `json:"script_type"` // one-time, interval
+	Command       string    `json:"command"`
+	Status        string    `json:"status"`             // started, completed, failed, cancelled
+	Duration      int64     `json:"duration,omitempty"` // nanoseconds
+	Output        string    `json:"output,omitempty"`
+	ErrorOutput   string    `json:"error_output,omitempty"`
+	ExitCode      int       `json:"exit_code,omitempty"`
+	Success       bool      `json:"success"` // computed field based on status and exit code
 }
 
 type Watcher struct {
@@ -55,6 +111,12 @@ type Watcher struct {
 	intervalScriptsMu    sync.RWMutex
 	scriptMetrics        map[string]map[string]*ScriptMetrics // challengeName -> scriptName -> metrics
 	scriptMetricsMu      sync.RWMutex
+	// Database and socket related fields
+	db           *sql.DB
+	dbMu         sync.RWMutex
+	socketPath   string
+	socketServer net.Listener
+	socketMu     sync.RWMutex
 }
 
 type WatcherConfig struct {
@@ -69,6 +131,12 @@ type WatcherConfig struct {
 	GitPullEnabled            bool          // Enable automatic git pull
 	GitPullInterval           time.Duration // Interval for git pull (default: 1 minute)
 	GitRepository             string        // Git repository path (default: current directory)
+	// Database configuration
+	DatabaseEnabled bool   // Enable database logging
+	DatabasePath    string // SQLite database file path
+	// Socket configuration
+	SocketEnabled bool   // Enable socket server
+	SocketPath    string // Unix socket path for communication
 }
 
 var DefaultWatcherConfig = WatcherConfig{
@@ -83,6 +151,12 @@ var DefaultWatcherConfig = WatcherConfig{
 	GitPullEnabled:            true,            // Enable git pull by default
 	GitPullInterval:           1 * time.Minute, // Pull every minute
 	GitRepository:             ".",             // Current directory
+	// Database defaults
+	DatabaseEnabled: true, // Enable database logging by default
+	DatabasePath:    "/tmp/gzctf-watcher.db",
+	// Socket defaults
+	SocketEnabled: true, // Enable socket server by default
+	SocketPath:    "/tmp/gzctf-watcher.sock",
 }
 
 // getChallengeUpdateMutex gets or creates a mutex for a specific challenge
@@ -132,6 +206,10 @@ func NewWatcher(gz *GZ) (*Watcher, error) {
 		challengeConfigs:     make(map[string]ChallengeYaml),
 		intervalScripts:      make(map[string]map[string]context.CancelFunc),
 		scriptMetrics:        make(map[string]map[string]*ScriptMetrics),
+		// Database and socket will be initialized in Start() if enabled
+		db:           nil,
+		socketServer: nil,
+		socketPath:   "",
 	}, nil
 }
 
@@ -151,6 +229,12 @@ func (w *Watcher) Start(config WatcherConfig) error {
 	}
 	if w.config.LogFile == "" {
 		w.config.LogFile = DefaultWatcherConfig.LogFile
+	}
+	if w.config.DatabasePath == "" {
+		w.config.DatabasePath = DefaultWatcherConfig.DatabasePath
+	}
+	if w.config.SocketPath == "" {
+		w.config.SocketPath = DefaultWatcherConfig.SocketPath
 	}
 
 	if w.config.DaemonMode {
@@ -220,6 +304,16 @@ func (w *Watcher) startAsDaemon() error {
 
 // startWatcher starts the actual watcher functionality
 func (w *Watcher) startWatcher() error {
+	// Initialize database if enabled
+	if err := w.initDatabase(); err != nil {
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+
+	// Initialize socket server if enabled
+	if err := w.initSocketServer(); err != nil {
+		return fmt.Errorf("failed to initialize socket server: %w", err)
+	}
+
 	// Get challenges and add them to watch
 	challenges, err := w.getChallenges()
 	if err != nil {
@@ -229,8 +323,12 @@ func (w *Watcher) startWatcher() error {
 	for _, challenge := range challenges {
 		if err := w.addChallengeToWatch(challenge); err != nil {
 			log.Error("Failed to watch challenge %s: %v", challenge.Name, err)
+			w.logToDatabase("ERROR", "watcher", challenge.Name, "", "Failed to add challenge to watcher", err.Error(), 0)
 			continue
 		}
+		// Log initial challenge state
+		w.updateChallengeState(challenge.Name, "watching", "")
+		w.logToDatabase("INFO", "watcher", challenge.Name, "", "Challenge added to watcher successfully", "", 0)
 	}
 
 	// Start the main watch loop
@@ -258,8 +356,20 @@ func (w *Watcher) startWatcher() error {
 		}()
 	}
 
+	// Start socket server if enabled
+	if w.config.SocketEnabled {
+		w.wg.Add(1)
+		go func() {
+			defer w.wg.Done()
+			w.socketServerLoop()
+		}()
+	}
+
 	log.Info("📁 Watching %d challenges", len(challenges))
 	log.Info("File watcher started successfully")
+
+	// Log watcher startup
+	w.logToDatabase("INFO", "watcher", "", "", fmt.Sprintf("File watcher started, watching %d challenges", len(challenges)), "", 0)
 
 	return nil
 }
@@ -298,6 +408,9 @@ func (w *Watcher) stopAllIntervalScriptsWithTimeout(timeout time.Duration) {
 func (w *Watcher) Stop() error {
 	log.Info("Stopping file watcher...")
 
+	// Log shutdown start
+	w.logToDatabase("INFO", "watcher", "", "", "File watcher shutdown initiated", "", 0)
+
 	// Stop all interval scripts with timeout
 	w.stopAllIntervalScriptsWithTimeout(5 * time.Second)
 
@@ -318,11 +431,25 @@ func (w *Watcher) Stop() error {
 		log.Error("Timeout waiting for goroutines to finish")
 	}
 
+	// Close socket server
+	if err := w.closeSocketServer(); err != nil {
+		log.Error("Failed to close socket server: %v", err)
+	}
+
+	// Close file system watcher
 	if w.watcher != nil {
 		err := w.watcher.Close()
 		if err != nil {
-			return fmt.Errorf("failed to close watcher: %w", err)
+			log.Error("Failed to close file watcher: %v", err)
 		}
+	}
+
+	// Log shutdown completion before closing database
+	w.logToDatabase("INFO", "watcher", "", "", "File watcher shutdown completed", "", 0)
+
+	// Close database connection last
+	if err := w.closeDatabase(); err != nil {
+		log.Error("Failed to close database: %v", err)
 	}
 
 	log.Info("File watcher stopped")
@@ -1177,7 +1304,14 @@ func (w *Watcher) startIntervalScript(challengeName, scriptName string, challeng
 		w.scriptMetrics[challengeName] = make(map[string]*ScriptMetrics)
 	}
 	if w.scriptMetrics[challengeName][scriptName] == nil {
-		w.scriptMetrics[challengeName][scriptName] = &ScriptMetrics{}
+		w.scriptMetrics[challengeName][scriptName] = &ScriptMetrics{
+			IsInterval: true,
+			Interval:   interval,
+		}
+	} else {
+		// Update existing metrics with interval info
+		w.scriptMetrics[challengeName][scriptName].IsInterval = true
+		w.scriptMetrics[challengeName][scriptName].Interval = interval
 	}
 	w.scriptMetricsMu.Unlock()
 
@@ -1185,8 +1319,97 @@ func (w *Watcher) startIntervalScript(challengeName, scriptName string, challeng
 	ctx, cancel := context.WithCancel(w.ctx)
 	w.intervalScripts[challengeName][scriptName] = cancel
 
-	// Start the interval script in a goroutine
-	go runIntervalScript(ctx, challenge, scriptName, command, interval)
+	// Start the interval script in a goroutine with watcher-specific logging
+	go w.runWatcherIntervalScript(ctx, challengeName, scriptName, command, interval, challenge.Cwd)
+}
+
+// runWatcherIntervalScript runs an interval script with proper watcher integration and database logging
+func (w *Watcher) runWatcherIntervalScript(ctx context.Context, challengeName, scriptName, command string, interval time.Duration, cwd string) {
+	// Validate interval
+	if !validateInterval(interval, scriptName) {
+		log.Error("Invalid interval for script '%s' in challenge '%s', skipping", scriptName, challengeName)
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	log.InfoH3("Started interval script '%s' for challenge '%s' with interval %v", scriptName, challengeName, interval)
+
+	// Log initial start to database
+	w.logScriptExecution(challengeName, scriptName, "interval", command, "started", 0, "", "", 0)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.InfoH3("Stopped interval script '%s' for challenge '%s' (context cancelled)", scriptName, challengeName)
+			w.logScriptExecution(challengeName, scriptName, "interval", command, "stopped", 0, "", "Context cancelled", 0)
+			return
+		case <-ticker.C:
+			log.InfoH3("Executing interval script '%s' for challenge '%s'", scriptName, challengeName)
+
+			// Log execution start
+			start := time.Now()
+			w.logScriptExecution(challengeName, scriptName, "interval", command, "executing", 0, "", "", 0)
+
+			// Update metrics
+			w.scriptMetricsMu.Lock()
+			if w.scriptMetrics[challengeName] != nil && w.scriptMetrics[challengeName][scriptName] != nil {
+				w.scriptMetrics[challengeName][scriptName].LastExecution = start
+				w.scriptMetrics[challengeName][scriptName].ExecutionCount++
+			}
+			w.scriptMetricsMu.Unlock()
+
+			// Execute the script with context-aware execution and proper timeout
+			var exitCode int = 0
+			var success bool = false
+			var errorOutput string = ""
+			var output string = ""
+
+			err := runShellForInterval(ctx, command, cwd, DefaultScriptTimeout)
+			duration := time.Since(start)
+
+			if err != nil {
+				log.Error("Interval script '%s' failed for challenge '%s' after %v: %v", scriptName, challengeName, duration, err)
+				success = false
+				exitCode = 1
+				errorOutput = err.Error()
+
+				// Update metrics with error
+				w.scriptMetricsMu.Lock()
+				if w.scriptMetrics[challengeName] != nil && w.scriptMetrics[challengeName][scriptName] != nil {
+					metrics := w.scriptMetrics[challengeName][scriptName]
+					metrics.LastError = err
+					metrics.LastDuration = duration
+					metrics.TotalDuration += duration
+				}
+				w.scriptMetricsMu.Unlock()
+			} else {
+				log.InfoH3("Interval script '%s' completed successfully for challenge '%s' in %v", scriptName, challengeName, duration)
+				success = true
+				exitCode = 0
+
+				// Update metrics with success
+				w.scriptMetricsMu.Lock()
+				if w.scriptMetrics[challengeName] != nil && w.scriptMetrics[challengeName][scriptName] != nil {
+					metrics := w.scriptMetrics[challengeName][scriptName]
+					metrics.LastError = nil
+					metrics.LastDuration = duration
+					metrics.TotalDuration += duration
+				}
+				w.scriptMetricsMu.Unlock()
+			}
+
+			// Log execution completion to database
+			status := "failed"
+			if success {
+				status = "completed"
+			}
+
+			w.logScriptExecution(challengeName, scriptName, "interval", command, status,
+				duration.Nanoseconds(), output, errorOutput, exitCode)
+		}
+	}
 }
 
 // stopIntervalScript stops a specific interval script for a challenge
@@ -1241,6 +1464,10 @@ func (w *Watcher) runScriptWithIntervalSupport(challengeConf ChallengeYaml, scri
 		log.InfoH2("Starting interval script '%s' with interval %v", script, interval)
 		log.InfoH3("Script command: %s", command)
 
+		// Log script start
+		w.logToDatabase("INFO", "script", challengeConf.Name, script,
+			fmt.Sprintf("Starting interval script with interval %v", interval), "", 0)
+
 		// Use watcher's interval script management
 		w.startIntervalScript(challengeConf.Name, script, challengeConf, command, interval)
 		return nil
@@ -1249,32 +1476,104 @@ func (w *Watcher) runScriptWithIntervalSupport(challengeConf ChallengeYaml, scri
 	// For non-interval scripts, stop any existing interval script with the same name
 	w.stopIntervalScript(challengeConf.Name, script)
 
+	// Initialize metrics for one-time script if needed
+	w.scriptMetricsMu.Lock()
+	if w.scriptMetrics[challengeConf.Name] == nil {
+		w.scriptMetrics[challengeConf.Name] = make(map[string]*ScriptMetrics)
+	}
+	if w.scriptMetrics[challengeConf.Name][script] == nil {
+		w.scriptMetrics[challengeConf.Name][script] = &ScriptMetrics{
+			IsInterval: false,
+			Interval:   0,
+		}
+	} else {
+		// Update existing metrics to mark as non-interval
+		w.scriptMetrics[challengeConf.Name][script].IsInterval = false
+		w.scriptMetrics[challengeConf.Name][script].Interval = 0
+	}
+	w.scriptMetricsMu.Unlock()
+
+	// Log script execution start
+	start := time.Now()
+	w.logScriptExecution(challengeConf.Name, script, "one-time", command, "started", 0, "", "", 0)
+
 	// Run simple one-time script with timeout protection
 	log.InfoH2("Running:\n%s", command)
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultScriptTimeout)
 	defer cancel()
 
-	return runShellWithContext(ctx, command, challengeConf.Cwd)
+	err := runShellWithContext(ctx, command, challengeConf.Cwd)
+	duration := time.Since(start)
+
+	// Update metrics
+	w.scriptMetricsMu.Lock()
+	if w.scriptMetrics[challengeConf.Name] != nil && w.scriptMetrics[challengeConf.Name][script] != nil {
+		metrics := w.scriptMetrics[challengeConf.Name][script]
+		metrics.LastExecution = start
+		metrics.ExecutionCount++
+		metrics.LastDuration = duration
+		metrics.TotalDuration += duration
+		if err != nil {
+			metrics.LastError = err
+		} else {
+			metrics.LastError = nil
+		}
+	}
+	w.scriptMetricsMu.Unlock()
+
+	// Log script completion
+	if err != nil {
+		w.logToDatabase("ERROR", "script", challengeConf.Name, script,
+			"One-time script execution failed", err.Error(), duration.Milliseconds())
+		w.logScriptExecution(challengeConf.Name, script, "one-time", command, "failed", duration.Nanoseconds(), "", err.Error(), 1)
+	} else {
+		w.logToDatabase("INFO", "script", challengeConf.Name, script,
+			"One-time script execution completed successfully", "", duration.Milliseconds())
+		w.logScriptExecution(challengeConf.Name, script, "one-time", command, "completed", duration.Nanoseconds(), "", "", 0)
+	}
+
+	return err
 }
 
 // GetScriptMetrics returns script execution metrics for monitoring
 func (w *Watcher) GetScriptMetrics() map[string]map[string]*ScriptMetrics {
 	w.scriptMetricsMu.RLock()
+	w.challengeConfigsMu.RLock()
 	defer w.scriptMetricsMu.RUnlock()
+	defer w.challengeConfigsMu.RUnlock()
 
-	// Create a copy to avoid concurrent map access
+	// Create a copy to avoid concurrent map access and enrich with interval information
 	result := make(map[string]map[string]*ScriptMetrics)
+
 	for challengeName, challengeMetrics := range w.scriptMetrics {
 		result[challengeName] = make(map[string]*ScriptMetrics)
+
+		// Get challenge config for interval information
+		challengeConfig, hasConfig := w.challengeConfigs[challengeName]
+
 		for scriptName, metrics := range challengeMetrics {
 			// Create a copy of the metrics
-			result[challengeName][scriptName] = &ScriptMetrics{
+			metricsCopy := &ScriptMetrics{
 				LastExecution:  metrics.LastExecution,
 				ExecutionCount: metrics.ExecutionCount,
 				LastError:      metrics.LastError,
 				LastDuration:   metrics.LastDuration,
 				TotalDuration:  metrics.TotalDuration,
+				IsInterval:     false,
+				Interval:       0,
 			}
+
+			// Check if this script has interval configuration
+			if hasConfig {
+				if scriptValue, exists := challengeConfig.Scripts[scriptName]; exists {
+					if scriptValue.HasInterval() {
+						metricsCopy.IsInterval = true
+						metricsCopy.Interval = scriptValue.GetInterval()
+					}
+				}
+			}
+
+			result[challengeName][scriptName] = metricsCopy
 		}
 	}
 	return result
@@ -1293,6 +1592,1208 @@ func (w *Watcher) GetActiveIntervalScripts() map[string][]string {
 		}
 	}
 	return result
+}
+
+// Database initialization and management functions
+func (w *Watcher) initDatabase() error {
+	if !w.config.DatabaseEnabled {
+		log.Info("Database logging disabled")
+		return nil
+	}
+
+	dbPath := w.config.DatabasePath
+	if dbPath == "" {
+		dbPath = DefaultWatcherConfig.DatabasePath
+	}
+
+	log.Info("Initializing SQLite database: %s", dbPath)
+
+	// Create database directory if it doesn't exist
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		return fmt.Errorf("failed to create database directory: %w", err)
+	}
+
+	// Open database
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// Test connection
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	w.dbMu.Lock()
+	w.db = db
+	w.dbMu.Unlock()
+
+	// Create tables
+	if err := w.createDatabaseTables(); err != nil {
+		return fmt.Errorf("failed to create database tables: %w", err)
+	}
+
+	log.Info("Database initialized successfully")
+	return nil
+}
+
+func (w *Watcher) createDatabaseTables() error {
+	w.dbMu.RLock()
+	db := w.db
+	w.dbMu.RUnlock()
+
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	// Create watcher_logs table
+	createLogsTable := `
+		CREATE TABLE IF NOT EXISTS watcher_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+			level TEXT NOT NULL,
+			component TEXT NOT NULL,
+			challenge TEXT,
+			script TEXT,
+			message TEXT NOT NULL,
+			error TEXT,
+			duration INTEGER
+		);
+		CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON watcher_logs(timestamp);
+		CREATE INDEX IF NOT EXISTS idx_logs_level ON watcher_logs(level);
+		CREATE INDEX IF NOT EXISTS idx_logs_challenge ON watcher_logs(challenge);
+	`
+
+	// Create challenge_states table
+	createStatesTable := `
+		CREATE TABLE IF NOT EXISTS challenge_states (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			challenge_name TEXT UNIQUE NOT NULL,
+			status TEXT NOT NULL,
+			last_update DATETIME DEFAULT CURRENT_TIMESTAMP,
+			error_message TEXT,
+			script_states TEXT
+		);
+		CREATE INDEX IF NOT EXISTS idx_states_name ON challenge_states(challenge_name);
+		CREATE INDEX IF NOT EXISTS idx_states_status ON challenge_states(status);
+	`
+
+	// Create script_executions table
+	createExecutionsTable := `
+		CREATE TABLE IF NOT EXISTS script_executions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+			challenge_name TEXT NOT NULL,
+			script_name TEXT NOT NULL,
+			script_type TEXT NOT NULL,
+			command TEXT NOT NULL,
+			status TEXT NOT NULL,
+			duration INTEGER,
+			output TEXT,
+			error_output TEXT,
+			exit_code INTEGER
+		);
+		CREATE INDEX IF NOT EXISTS idx_executions_timestamp ON script_executions(timestamp);
+		CREATE INDEX IF NOT EXISTS idx_executions_challenge ON script_executions(challenge_name);
+		CREATE INDEX IF NOT EXISTS idx_executions_script ON script_executions(script_name);
+		CREATE INDEX IF NOT EXISTS idx_executions_status ON script_executions(status);
+	`
+
+	// Execute table creation statements
+	if _, err := db.Exec(createLogsTable); err != nil {
+		return fmt.Errorf("failed to create watcher_logs table: %w", err)
+	}
+
+	if _, err := db.Exec(createStatesTable); err != nil {
+		return fmt.Errorf("failed to create challenge_states table: %w", err)
+	}
+
+	if _, err := db.Exec(createExecutionsTable); err != nil {
+		return fmt.Errorf("failed to create script_executions table: %w", err)
+	}
+
+	log.Info("Database tables created successfully")
+	return nil
+}
+
+func (w *Watcher) closeDatabase() error {
+	w.dbMu.Lock()
+	defer w.dbMu.Unlock()
+
+	if w.db != nil {
+		log.Info("Closing database connection")
+		err := w.db.Close()
+		w.db = nil
+		return err
+	}
+	return nil
+}
+
+// Database logging functions
+func (w *Watcher) logToDatabase(level, component, challenge, script, message, errorMsg string, duration int64) {
+	if !w.config.DatabaseEnabled {
+		return
+	}
+
+	w.dbMu.RLock()
+	db := w.db
+	w.dbMu.RUnlock()
+
+	if db == nil {
+		return
+	}
+
+	query := `
+		INSERT INTO watcher_logs (level, component, challenge, script, message, error, duration)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`
+
+	_, err := db.Exec(query, level, component, challenge, script, message, errorMsg, duration)
+	if err != nil {
+		// Don't use log.Error here to avoid potential recursion
+		fmt.Printf("Failed to log to database: %v\n", err)
+	}
+}
+
+func (w *Watcher) updateChallengeState(challengeName, status, errorMessage string) {
+	if !w.config.DatabaseEnabled {
+		return
+	}
+
+	w.dbMu.RLock()
+	db := w.db
+	w.dbMu.RUnlock()
+
+	if db == nil {
+		return
+	}
+
+	// Get current script states
+	activeScripts := w.GetActiveIntervalScripts()
+	scriptStatesJSON, _ := json.Marshal(activeScripts[challengeName])
+
+	query := `
+		INSERT OR REPLACE INTO challenge_states (challenge_name, status, last_update, error_message, script_states)
+		VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?)
+	`
+
+	_, err := db.Exec(query, challengeName, status, errorMessage, string(scriptStatesJSON))
+	if err != nil {
+		fmt.Printf("Failed to update challenge state: %v\n", err)
+	}
+}
+
+func (w *Watcher) logScriptExecution(challengeName, scriptName, scriptType, command, status string, duration int64, output, errorOutput string, exitCode int) {
+	if !w.config.DatabaseEnabled {
+		return
+	}
+
+	w.dbMu.RLock()
+	db := w.db
+	w.dbMu.RUnlock()
+
+	if db == nil {
+		return
+	}
+
+	query := `
+		INSERT INTO script_executions (challenge_name, script_name, script_type, command, status, duration, output, error_output, exit_code)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	_, err := db.Exec(query, challengeName, scriptName, scriptType, command, status, duration, output, errorOutput, exitCode)
+	if err != nil {
+		fmt.Printf("Failed to log script execution: %v\n", err)
+	}
+}
+
+// Socket server initialization and management functions
+func (w *Watcher) initSocketServer() error {
+	if !w.config.SocketEnabled {
+		log.Info("Socket server disabled")
+		return nil
+	}
+
+	socketPath := w.config.SocketPath
+	if socketPath == "" {
+		socketPath = DefaultWatcherConfig.SocketPath
+	}
+
+	// Remove existing socket file if it exists
+	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+		log.Error("Failed to remove existing socket file: %v", err)
+	}
+
+	// Create socket directory if it doesn't exist
+	socketDir := filepath.Dir(socketPath)
+	if err := os.MkdirAll(socketDir, 0755); err != nil {
+		return fmt.Errorf("failed to create socket directory: %w", err)
+	}
+
+	// Create Unix socket
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return fmt.Errorf("failed to create Unix socket: %w", err)
+	}
+
+	// Set socket permissions
+	if err := os.Chmod(socketPath, 0666); err != nil {
+		listener.Close()
+		return fmt.Errorf("failed to set socket permissions: %w", err)
+	}
+
+	w.socketMu.Lock()
+	w.socketServer = listener
+	w.socketPath = socketPath
+	w.socketMu.Unlock()
+
+	log.Info("Socket server initialized: %s", socketPath)
+	return nil
+}
+
+func (w *Watcher) closeSocketServer() error {
+	w.socketMu.Lock()
+	defer w.socketMu.Unlock()
+
+	if w.socketServer != nil {
+		log.Info("Closing socket server")
+		err := w.socketServer.Close()
+		w.socketServer = nil
+
+		// Clean up socket file
+		if w.socketPath != "" {
+			if removeErr := os.Remove(w.socketPath); removeErr != nil && !os.IsNotExist(removeErr) {
+				log.Error("Failed to remove socket file: %v", removeErr)
+			}
+			w.socketPath = ""
+		}
+		return err
+	}
+	return nil
+}
+
+func (w *Watcher) socketServerLoop() {
+	w.socketMu.RLock()
+	listener := w.socketServer
+	w.socketMu.RUnlock()
+
+	if listener == nil {
+		return
+	}
+
+	log.Info("Starting socket server loop")
+
+	for {
+		select {
+		case <-w.ctx.Done():
+			log.Info("Socket server loop stopped")
+			return
+		default:
+			conn, err := listener.Accept()
+			if err != nil {
+				// Check if we're shutting down
+				select {
+				case <-w.ctx.Done():
+					return
+				default:
+					log.Error("Failed to accept socket connection: %v", err)
+					continue
+				}
+			}
+
+			// Handle connection in goroutine
+			go w.handleSocketConnection(conn)
+		}
+	}
+}
+
+func (w *Watcher) handleSocketConnection(conn net.Conn) {
+	defer conn.Close()
+
+	// Set connection timeout
+	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+
+	decoder := json.NewDecoder(conn)
+	encoder := json.NewEncoder(conn)
+
+	var cmd WatcherCommand
+	if err := decoder.Decode(&cmd); err != nil {
+		response := WatcherResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to decode command: %v", err),
+		}
+		encoder.Encode(response)
+		return
+	}
+
+	// Process command
+	response := w.processSocketCommand(cmd)
+
+	// Send response
+	if err := encoder.Encode(response); err != nil {
+		log.Error("Failed to send socket response: %v", err)
+	}
+}
+
+func (w *Watcher) processSocketCommand(cmd WatcherCommand) WatcherResponse {
+	switch cmd.Action {
+	case "status":
+		return w.handleStatusCommand(cmd)
+	case "list_challenges":
+		return w.handleListChallengesCommand(cmd)
+	case "get_metrics":
+		return w.handleGetMetricsCommand(cmd)
+	case "get_logs":
+		return w.handleGetLogsCommand(cmd)
+	case "stop_script":
+		return w.handleStopScriptCommand(cmd)
+	case "restart_challenge":
+		return w.handleRestartChallengeCommand(cmd)
+	case "get_script_executions":
+		return w.handleGetScriptExecutionsCommand(cmd)
+	default:
+		return WatcherResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Unknown command: %s", cmd.Action),
+		}
+	}
+}
+
+// Socket command handlers
+func (w *Watcher) handleStatusCommand(cmd WatcherCommand) WatcherResponse {
+	activeScripts := w.GetActiveIntervalScripts()
+	challenges := len(w.watchedChallenges)
+
+	status := map[string]interface{}{
+		"status":             "running",
+		"watched_challenges": challenges,
+		"active_scripts":     activeScripts,
+		"database_enabled":   w.config.DatabaseEnabled,
+		"socket_enabled":     w.config.SocketEnabled,
+		"uptime":             time.Since(time.Now()).String(), // You might want to track actual startup time
+	}
+
+	return WatcherResponse{
+		Success: true,
+		Message: "Watcher status retrieved successfully",
+		Data:    status,
+	}
+}
+
+func (w *Watcher) handleListChallengesCommand(cmd WatcherCommand) WatcherResponse {
+	w.watchedMu.RLock()
+	challenges := make([]map[string]interface{}, 0, len(w.watchedChallenges))
+	for name, watching := range w.watchedChallenges {
+		challengeInfo := map[string]interface{}{
+			"name":     name,
+			"watching": watching,
+		}
+		if dir, exists := w.watchedChallengeDirs[name]; exists {
+			challengeInfo["directory"] = dir
+		}
+		challenges = append(challenges, challengeInfo)
+	}
+	w.watchedMu.RUnlock()
+
+	return WatcherResponse{
+		Success: true,
+		Message: fmt.Sprintf("Found %d challenges", len(challenges)),
+		Data:    map[string]interface{}{"challenges": challenges},
+	}
+}
+
+func (w *Watcher) handleGetMetricsCommand(cmd WatcherCommand) WatcherResponse {
+	metrics := w.GetScriptMetrics()
+
+	return WatcherResponse{
+		Success: true,
+		Message: "Script metrics retrieved successfully",
+		Data:    map[string]interface{}{"metrics": metrics},
+	}
+}
+
+func (w *Watcher) handleGetLogsCommand(cmd WatcherCommand) WatcherResponse {
+	if !w.config.DatabaseEnabled {
+		return WatcherResponse{
+			Success: false,
+			Error:   "Database logging is disabled",
+		}
+	}
+
+	// Get limit from command data (default to 100)
+	limit := 100
+	if cmd.Data != nil {
+		if l, ok := cmd.Data["limit"].(float64); ok {
+			limit = int(l)
+		}
+	}
+
+	logs, err := w.getRecentLogs(limit)
+	if err != nil {
+		return WatcherResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to get logs: %v", err),
+		}
+	}
+
+	return WatcherResponse{
+		Success: true,
+		Message: fmt.Sprintf("Retrieved %d log entries", len(logs)),
+		Data:    map[string]interface{}{"logs": logs},
+	}
+}
+
+func (w *Watcher) handleStopScriptCommand(cmd WatcherCommand) WatcherResponse {
+	if cmd.Data == nil {
+		return WatcherResponse{
+			Success: false,
+			Error:   "Missing challenge_name and script_name parameters",
+		}
+	}
+
+	challengeName, ok1 := cmd.Data["challenge_name"].(string)
+	scriptName, ok2 := cmd.Data["script_name"].(string)
+
+	if !ok1 || !ok2 {
+		return WatcherResponse{
+			Success: false,
+			Error:   "Invalid challenge_name or script_name parameter",
+		}
+	}
+
+	w.stopIntervalScript(challengeName, scriptName)
+
+	return WatcherResponse{
+		Success: true,
+		Message: fmt.Sprintf("Stopped script '%s' for challenge '%s'", scriptName, challengeName),
+	}
+}
+
+func (w *Watcher) handleRestartChallengeCommand(cmd WatcherCommand) WatcherResponse {
+	if cmd.Data == nil {
+		return WatcherResponse{
+			Success: false,
+			Error:   "Missing challenge_name parameter",
+		}
+	}
+
+	challengeName, ok := cmd.Data["challenge_name"].(string)
+	if !ok {
+		return WatcherResponse{
+			Success: false,
+			Error:   "Invalid challenge_name parameter",
+		}
+	}
+
+	// Find challenge
+	challenge, err := w.findChallengeByName(challengeName)
+	if err != nil {
+		return WatcherResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to find challenge: %v", err),
+		}
+	}
+
+	if challenge == nil {
+		return WatcherResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Challenge '%s' not found", challengeName),
+		}
+	}
+
+	// Trigger full redeploy in background
+	go func() {
+		w.updateChallengeState(challengeName, "restarting", "")
+		if err := w.fullRedeployChallenge(*challenge); err != nil {
+			w.updateChallengeState(challengeName, "error", err.Error())
+			log.Error("Failed to restart challenge %s: %v", challengeName, err)
+		} else {
+			w.updateChallengeState(challengeName, "watching", "")
+		}
+	}()
+
+	return WatcherResponse{
+		Success: true,
+		Message: fmt.Sprintf("Challenge '%s' restart initiated", challengeName),
+	}
+}
+
+func (w *Watcher) handleGetScriptExecutionsCommand(cmd WatcherCommand) WatcherResponse {
+	if !w.config.DatabaseEnabled {
+		return WatcherResponse{
+			Success: false,
+			Error:   "Database logging is disabled",
+		}
+	}
+
+	limit := 100
+	challengeName := ""
+
+	if cmd.Data != nil {
+		if l, ok := cmd.Data["limit"].(float64); ok {
+			limit = int(l)
+		}
+		if c, ok := cmd.Data["challenge_name"].(string); ok {
+			challengeName = c
+		}
+	}
+
+	executions, err := w.getScriptExecutions(challengeName, limit)
+	if err != nil {
+		return WatcherResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to get script executions: %v", err),
+		}
+	}
+
+	return WatcherResponse{
+		Success: true,
+		Message: fmt.Sprintf("Retrieved %d script executions", len(executions)),
+		Data:    map[string]interface{}{"executions": executions},
+	}
+}
+
+// Database query helper functions
+func (w *Watcher) getRecentLogs(limit int) ([]WatcherLog, error) {
+	w.dbMu.RLock()
+	db := w.db
+	w.dbMu.RUnlock()
+
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	query := `
+		SELECT id, timestamp, level, component, challenge, script, message, error, duration
+		FROM watcher_logs
+		ORDER BY timestamp DESC
+		LIMIT ?
+	`
+
+	rows, err := db.Query(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []WatcherLog
+	for rows.Next() {
+		var log WatcherLog
+		var challenge, script, errorMsg sql.NullString
+		var duration sql.NullInt64
+
+		err := rows.Scan(
+			&log.ID, &log.Timestamp, &log.Level, &log.Component,
+			&challenge, &script, &log.Message, &errorMsg, &duration,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		log.Challenge = challenge.String
+		log.Script = script.String
+		log.Error = errorMsg.String
+		log.Duration = duration.Int64
+
+		logs = append(logs, log)
+	}
+
+	return logs, rows.Err()
+}
+
+func (w *Watcher) getScriptExecutions(challengeName string, limit int) ([]ScriptExecution, error) {
+	w.dbMu.RLock()
+	db := w.db
+	w.dbMu.RUnlock()
+
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var query string
+	var args []interface{}
+
+	if challengeName != "" {
+		query = `
+			SELECT id, timestamp, challenge_name, script_name, script_type, command, status, duration, output, error_output, exit_code
+			FROM script_executions
+			WHERE challenge_name = ?
+			ORDER BY timestamp DESC
+			LIMIT ?
+		`
+		args = []interface{}{challengeName, limit}
+	} else {
+		query = `
+			SELECT id, timestamp, challenge_name, script_name, script_type, command, status, duration, output, error_output, exit_code
+			FROM script_executions
+			ORDER BY timestamp DESC
+			LIMIT ?
+		`
+		args = []interface{}{limit}
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var executions []ScriptExecution
+	for rows.Next() {
+		var exec ScriptExecution
+		var duration sql.NullInt64
+		var output, errorOutput sql.NullString
+		var exitCode sql.NullInt64
+
+		err := rows.Scan(
+			&exec.ID, &exec.Timestamp, &exec.ChallengeName, &exec.ScriptName,
+			&exec.ScriptType, &exec.Command, &exec.Status, &duration,
+			&output, &errorOutput, &exitCode,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		exec.Duration = duration.Int64
+		exec.Output = output.String
+		exec.ErrorOutput = errorOutput.String
+		exec.ExitCode = int(exitCode.Int64)
+
+		// Compute success based on status and exit code
+		exec.Success = (exec.Status == "completed" && exitCode.Valid && exitCode.Int64 == 0) ||
+			(exec.Status == "completed" && !exitCode.Valid)
+
+		executions = append(executions, exec)
+	}
+
+	return executions, rows.Err()
+}
+
+// WatcherClient provides a client interface to communicate with the watcher daemon
+type WatcherClient struct {
+	socketPath string
+	timeout    time.Duration
+}
+
+// NewWatcherClient creates a new watcher client
+func NewWatcherClient(socketPath string) *WatcherClient {
+	if socketPath == "" {
+		socketPath = DefaultWatcherConfig.SocketPath
+	}
+	return &WatcherClient{
+		socketPath: socketPath,
+		timeout:    30 * time.Second,
+	}
+}
+
+// SetTimeout sets the connection timeout for the client
+func (c *WatcherClient) SetTimeout(timeout time.Duration) {
+	c.timeout = timeout
+}
+
+// SendCommand sends a command to the watcher and returns the response
+func (c *WatcherClient) SendCommand(action string, data map[string]interface{}) (*WatcherResponse, error) {
+	// Connect to the socket
+	conn, err := net.DialTimeout("unix", c.socketPath, c.timeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to watcher socket %s: %w", c.socketPath, err)
+	}
+	defer conn.Close()
+
+	// Set read/write deadline
+	deadline := time.Now().Add(c.timeout)
+	conn.SetDeadline(deadline)
+
+	// Create and send command
+	cmd := WatcherCommand{
+		Action: action,
+		Data:   data,
+	}
+
+	encoder := json.NewEncoder(conn)
+	if err := encoder.Encode(cmd); err != nil {
+		return nil, fmt.Errorf("failed to send command: %w", err)
+	}
+
+	// Read response
+	decoder := json.NewDecoder(conn)
+	var response WatcherResponse
+	if err := decoder.Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// Status gets the current watcher status
+func (c *WatcherClient) Status() (*WatcherResponse, error) {
+	return c.SendCommand("status", nil)
+}
+
+// ListChallenges gets the list of watched challenges
+func (c *WatcherClient) ListChallenges() (*WatcherResponse, error) {
+	return c.SendCommand("list_challenges", nil)
+}
+
+// GetMetrics gets script execution metrics
+func (c *WatcherClient) GetMetrics() (*WatcherResponse, error) {
+	return c.SendCommand("get_metrics", nil)
+}
+
+// GetLogs gets recent logs from the database
+func (c *WatcherClient) GetLogs(limit int) (*WatcherResponse, error) {
+	data := map[string]interface{}{
+		"limit": limit,
+	}
+	return c.SendCommand("get_logs", data)
+}
+
+// StopScript stops a specific interval script
+func (c *WatcherClient) StopScript(challengeName, scriptName string) (*WatcherResponse, error) {
+	data := map[string]interface{}{
+		"challenge_name": challengeName,
+		"script_name":    scriptName,
+	}
+	return c.SendCommand("stop_script", data)
+}
+
+// RestartChallenge triggers a full restart of a challenge
+func (c *WatcherClient) RestartChallenge(challengeName string) (*WatcherResponse, error) {
+	data := map[string]interface{}{
+		"challenge_name": challengeName,
+	}
+	return c.SendCommand("restart_challenge", data)
+}
+
+// GetScriptExecutions gets script execution history
+func (c *WatcherClient) GetScriptExecutions(challengeName string, limit int) (*WatcherResponse, error) {
+	data := map[string]interface{}{
+		"limit": limit,
+	}
+	if challengeName != "" {
+		data["challenge_name"] = challengeName
+	}
+	return c.SendCommand("get_script_executions", data)
+}
+
+// StreamLiveLogs streams database logs in real-time
+func (c *WatcherClient) StreamLiveLogs(limit int, interval time.Duration) error {
+	fmt.Printf("📡 Live Database Logs (refreshing every %v)\n", interval)
+	fmt.Println("==========================================")
+	fmt.Println("Press Ctrl+C to stop streaming")
+	fmt.Println()
+
+	var lastLogID int64 = 0
+
+	for {
+		// Get recent logs
+		response, err := c.GetLogs(limit)
+		if err != nil {
+			fmt.Printf("❌ Error getting logs: %v\n", err)
+			time.Sleep(interval)
+			continue
+		}
+
+		if !response.Success {
+			fmt.Printf("❌ Failed to get logs: %s\n", response.Error)
+			time.Sleep(interval)
+			continue
+		}
+
+		// Process and display new logs
+		if data, ok := response.Data["logs"].([]interface{}); ok && len(data) > 0 {
+			newLogs := []interface{}{}
+
+			// Filter for new logs only
+			for _, logInterface := range data {
+				if logMap, ok := logInterface.(map[string]interface{}); ok {
+					if idFloat, ok := logMap["id"].(float64); ok {
+						logID := int64(idFloat)
+						if logID > lastLogID {
+							newLogs = append(newLogs, logInterface)
+							if logID > lastLogID {
+								lastLogID = logID
+							}
+						}
+					}
+				}
+			}
+
+			// Display new logs (reverse order to show newest first)
+			if len(newLogs) > 0 {
+				for i := len(newLogs) - 1; i >= 0; i-- {
+					logInterface := newLogs[i]
+					if logMap, ok := logInterface.(map[string]interface{}); ok {
+						c.displayLogEntry(logMap)
+					}
+				}
+			}
+		}
+
+		time.Sleep(interval)
+	}
+}
+
+// displayLogEntry formats and displays a single log entry
+func (c *WatcherClient) displayLogEntry(logMap map[string]interface{}) {
+	timestamp := ""
+	if t, ok := logMap["timestamp"].(string); ok {
+		if parsed, err := time.Parse("2006-01-02T15:04:05Z", t); err == nil {
+			timestamp = parsed.Format("15:04:05")
+		} else {
+			timestamp = t
+		}
+	}
+
+	level := ""
+	if l, ok := logMap["level"].(string); ok {
+		level = l
+	}
+
+	component := ""
+	if comp, ok := logMap["component"].(string); ok {
+		component = comp
+	}
+
+	challenge := ""
+	if ch, ok := logMap["challenge"].(string); ok && ch != "" {
+		challenge = fmt.Sprintf("[%s]", ch)
+	}
+
+	script := ""
+	if sc, ok := logMap["script"].(string); ok && sc != "" {
+		script = fmt.Sprintf("/%s", sc)
+	}
+
+	message := ""
+	if m, ok := logMap["message"].(string); ok {
+		message = m
+	}
+
+	levelIcon := "ℹ️"
+	switch level {
+	case "ERROR":
+		levelIcon = "❌"
+	case "WARN":
+		levelIcon = "⚠️"
+	case "INFO":
+		levelIcon = "ℹ️"
+	case "DEBUG":
+		levelIcon = "🔍"
+	}
+
+	fmt.Printf("[%s] %s %s %s%s %s\n", timestamp, levelIcon, component, challenge, script, message)
+}
+
+// IsWatcherRunning checks if the watcher daemon is running
+func (c *WatcherClient) IsWatcherRunning() bool {
+	response, err := c.Status()
+	return err == nil && response.Success
+}
+
+// WaitForWatcher waits for the watcher to become available
+func (c *WatcherClient) WaitForWatcher(maxWait time.Duration) error {
+	deadline := time.Now().Add(maxWait)
+	for time.Now().Before(deadline) {
+		if c.IsWatcherRunning() {
+			return nil
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return fmt.Errorf("watcher did not become available within %v", maxWait)
+}
+
+// PrintStatus prints a formatted status report
+func (c *WatcherClient) PrintStatus() error {
+	response, err := c.Status()
+	if err != nil {
+		return fmt.Errorf("failed to get status: %w", err)
+	}
+
+	if !response.Success {
+		return fmt.Errorf("status request failed: %s", response.Error)
+	}
+
+	fmt.Println("🔍 GZCTF Watcher Status")
+	fmt.Println("==========================================")
+
+	if data, ok := response.Data["status"].(string); ok && data == "running" {
+		fmt.Println("🟢 Status: RUNNING")
+	} else {
+		fmt.Println("🔴 Status: UNKNOWN")
+	}
+
+	if challenges, ok := response.Data["watched_challenges"].(float64); ok {
+		fmt.Printf("📁 Watched Challenges: %.0f\n", challenges)
+	}
+
+	if dbEnabled, ok := response.Data["database_enabled"].(bool); ok {
+		if dbEnabled {
+			fmt.Println("🗄️  Database: ENABLED")
+		} else {
+			fmt.Println("🗄️  Database: DISABLED")
+		}
+	}
+
+	if socketEnabled, ok := response.Data["socket_enabled"].(bool); ok {
+		if socketEnabled {
+			fmt.Println("🔌 Socket Server: ENABLED")
+		} else {
+			fmt.Println("🔌 Socket Server: DISABLED")
+		}
+	}
+
+	if activeScripts, ok := response.Data["active_scripts"].(map[string]interface{}); ok && len(activeScripts) > 0 {
+		fmt.Println("\n🔄 Active Interval Scripts:")
+		for challengeName, scriptsInterface := range activeScripts {
+			if scripts, ok := scriptsInterface.([]interface{}); ok && len(scripts) > 0 {
+				fmt.Printf("  📦 %s:\n", challengeName)
+				for _, scriptInterface := range scripts {
+					if script, ok := scriptInterface.(string); ok {
+						fmt.Printf("    - %s\n", script)
+					}
+				}
+			}
+		}
+	}
+
+	fmt.Println("\n🛠️  Available Commands:")
+	fmt.Println("   gzcli watcher-client status")
+	fmt.Println("   gzcli watcher-client list")
+	fmt.Println("   gzcli watcher-client logs [--watcher-limit N]")
+	fmt.Println("   gzcli watcher-client live-logs [--watcher-limit N] [--watcher-interval 2s]")
+	fmt.Println("   gzcli watcher-client metrics")
+	fmt.Println("   gzcli watcher-client executions [--watcher-challenge NAME]")
+	fmt.Println("   gzcli watcher-client stop-script --watcher-challenge NAME --watcher-script SCRIPT")
+	fmt.Println("   gzcli watcher-client restart --watcher-challenge NAME")
+
+	return nil
+}
+
+// PrintChallenges prints a formatted list of challenges
+func (c *WatcherClient) PrintChallenges() error {
+	response, err := c.ListChallenges()
+	if err != nil {
+		return fmt.Errorf("failed to list challenges: %w", err)
+	}
+
+	if !response.Success {
+		return fmt.Errorf("list challenges request failed: %s", response.Error)
+	}
+
+	fmt.Println("📁 Watched Challenges")
+	fmt.Println("==========================================")
+
+	if data, ok := response.Data["challenges"].([]interface{}); ok {
+		if len(data) == 0 {
+			fmt.Println("No challenges are currently being watched.")
+			return nil
+		}
+
+		for i, challengeInterface := range data {
+			if challenge, ok := challengeInterface.(map[string]interface{}); ok {
+				name := "unknown"
+				if n, ok := challenge["name"].(string); ok {
+					name = n
+				}
+
+				watching := false
+				if w, ok := challenge["watching"].(bool); ok {
+					watching = w
+				}
+
+				directory := ""
+				if d, ok := challenge["directory"].(string); ok {
+					directory = d
+				}
+
+				status := "🔴"
+				if watching {
+					status = "🟢"
+				}
+
+				fmt.Printf("%d. %s %s\n", i+1, status, name)
+				if directory != "" {
+					fmt.Printf("   📂 %s\n", directory)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// PrintLogs prints formatted recent logs
+func (c *WatcherClient) PrintLogs(limit int) error {
+	response, err := c.GetLogs(limit)
+	if err != nil {
+		return fmt.Errorf("failed to get logs: %w", err)
+	}
+
+	if !response.Success {
+		return fmt.Errorf("get logs request failed: %s", response.Error)
+	}
+
+	fmt.Printf("📋 Recent Logs (last %d entries)\n", limit)
+	fmt.Println("==========================================")
+
+	if data, ok := response.Data["logs"].([]interface{}); ok {
+		if len(data) == 0 {
+			fmt.Println("No logs available.")
+			return nil
+		}
+
+		for _, logInterface := range data {
+			if logMap, ok := logInterface.(map[string]interface{}); ok {
+				timestamp := ""
+				if t, ok := logMap["timestamp"].(string); ok {
+					if parsed, err := time.Parse("2006-01-02T15:04:05Z", t); err == nil {
+						timestamp = parsed.Format("15:04:05")
+					} else {
+						timestamp = t
+					}
+				}
+
+				level := ""
+				if l, ok := logMap["level"].(string); ok {
+					level = l
+				}
+
+				component := ""
+				if c, ok := logMap["component"].(string); ok {
+					component = c
+				}
+
+				challenge := ""
+				if ch, ok := logMap["challenge"].(string); ok && ch != "" {
+					challenge = fmt.Sprintf("[%s]", ch)
+				}
+
+				message := ""
+				if m, ok := logMap["message"].(string); ok {
+					message = m
+				}
+
+				levelIcon := "ℹ️"
+				switch level {
+				case "ERROR":
+					levelIcon = "❌"
+				case "WARN":
+					levelIcon = "⚠️"
+				case "INFO":
+					levelIcon = "ℹ️"
+				case "DEBUG":
+					levelIcon = "🔍"
+				}
+
+				fmt.Printf("[%s] %s %s %s %s\n", timestamp, levelIcon, component, challenge, message)
+			}
+		}
+	}
+
+	return nil
+}
+
+// PrintMetrics prints formatted script metrics
+func (c *WatcherClient) PrintMetrics() error {
+	response, err := c.GetMetrics()
+	if err != nil {
+		return fmt.Errorf("failed to get metrics: %w", err)
+	}
+
+	if !response.Success {
+		return fmt.Errorf("get metrics request failed: %s", response.Error)
+	}
+
+	fmt.Println("📊 Script Execution Metrics")
+	fmt.Println("==========================================")
+
+	if data, ok := response.Data["metrics"].(map[string]interface{}); ok {
+		if len(data) == 0 {
+			fmt.Println("No metrics available.")
+			return nil
+		}
+
+		for challengeName, challengeInterface := range data {
+			if challengeMetrics, ok := challengeInterface.(map[string]interface{}); ok {
+				fmt.Printf("\n📦 Challenge: %s\n", challengeName)
+				fmt.Println("   Scripts:")
+
+				for scriptName, scriptInterface := range challengeMetrics {
+					if scriptMetrics, ok := scriptInterface.(map[string]interface{}); ok {
+						execCount := float64(0)
+						if ec, ok := scriptMetrics["ExecutionCount"].(float64); ok {
+							execCount = ec
+						}
+
+						lastExecution := ""
+						if le, ok := scriptMetrics["LastExecution"].(string); ok {
+							if parsed, err := time.Parse("2006-01-02T15:04:05Z", le); err == nil {
+								lastExecution = parsed.Format("2006-01-02 15:04:05")
+							} else {
+								lastExecution = le
+							}
+						}
+
+						lastDuration := ""
+						if ld, ok := scriptMetrics["LastDuration"].(float64); ok {
+							if ld >= 1000000000 { // >= 1 second
+								lastDuration = fmt.Sprintf("%.1fs", ld/1000000000)
+							} else if ld >= 1000000 { // >= 1 millisecond
+								lastDuration = fmt.Sprintf("%.0fms", ld/1000000)
+							} else if ld > 0 {
+								lastDuration = fmt.Sprintf("%.0fμs", ld/1000)
+							}
+						}
+
+						// Check if this is an interval script
+						isInterval := false
+						if ii, ok := scriptMetrics["is_interval"].(bool); ok {
+							isInterval = ii
+						}
+
+						interval := ""
+						if isInterval {
+							if iv, ok := scriptMetrics["interval"].(float64); ok && iv > 0 {
+								intervalDuration := time.Duration(iv)
+								if intervalDuration >= time.Hour {
+									interval = fmt.Sprintf(" [interval: %.0fh]", intervalDuration.Hours())
+								} else if intervalDuration >= time.Minute {
+									interval = fmt.Sprintf(" [interval: %.0fm]", intervalDuration.Minutes())
+								} else {
+									interval = fmt.Sprintf(" [interval: %.0fs]", intervalDuration.Seconds())
+								}
+							}
+						}
+
+						// Create script type indicator
+						scriptType := ""
+						if isInterval {
+							scriptType = "🔄 "
+						} else {
+							scriptType = "▶️ "
+						}
+
+						fmt.Printf("     %s%s: %.0f executions", scriptType, scriptName, execCount)
+						if lastExecution != "" && lastExecution != "0001-01-01 00:00:00" {
+							fmt.Printf(", last: %s", lastExecution)
+						}
+						if lastDuration != "" {
+							fmt.Printf(" (%s)", lastDuration)
+						}
+						if interval != "" {
+							fmt.Printf("%s", interval)
+						}
+						fmt.Println()
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // newChallengeCheckLoop periodically checks for new challenges
@@ -1351,8 +2852,10 @@ func (w *Watcher) checkAndAddNewChallenges(challenges []ChallengeYaml) {
 		// Add to watcher first
 		if err := w.addChallengeToWatch(challenge); err != nil {
 			log.Error("Failed to watch new challenge %s: %v", challenge.Name, err)
+			w.logToDatabase("ERROR", "watcher", challenge.Name, "", "Failed to add new challenge to watcher", err.Error(), 0)
 			continue
 		}
+		w.logToDatabase("INFO", "watcher", challenge.Name, "", "New challenge added to watcher successfully", "", 0)
 		log.InfoH3("✅ Successfully added new challenge to watcher: %s", challenge.Name)
 
 		// Sync and deploy the new challenge sequentially to prevent race conditions

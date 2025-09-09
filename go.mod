@@ -32,6 +32,7 @@ require (
 	github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/klauspost/compress v1.17.6 // indirect
+	github.com/mattn/go-sqlite3 v1.14.32 // indirect
 	github.com/pjbgf/sha1cd v0.3.2 // indirect
 	github.com/refraction-networking/utls v1.6.2 // indirect
 	github.com/satori/go.uuid v1.2.0 // indirect

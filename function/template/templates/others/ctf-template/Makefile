@@ -43,6 +43,53 @@ watch-status:
 watch-logs:
 	${SUDO} ${BIN} gzcli --watch-logs
 
+# Watcher Client Commands (for interacting with running daemon)
+watcher-status:
+	${SUDO} ${BIN} gzcli --watcher-client status
+
+watcher-list:
+	${SUDO} ${BIN} gzcli --watcher-client list
+
+watcher-logs:
+	${SUDO} ${BIN} gzcli --watcher-client logs --watcher-limit 50
+
+watcher-logs-all:
+	${SUDO} ${BIN} gzcli --watcher-client logs --watcher-limit 200
+
+watcher-live-logs:
+	${SUDO} ${BIN} gzcli --watcher-client live-logs --watcher-limit 50 --watcher-interval 2s
+
+watcher-live-logs-fast:
+	${SUDO} ${BIN} gzcli --watcher-client live-logs --watcher-limit 50 --watcher-interval 1s
+
+watcher-metrics:
+	${SUDO} ${BIN} gzcli --watcher-client metrics
+
+watcher-executions:
+	${SUDO} ${BIN} gzcli --watcher-client executions --watcher-limit 100
+
+# Challenge-specific watcher operations (requires CHALLENGE= parameter)
+watcher-restart-challenge:
+ifndef CHALLENGE
+	$(error CHALLENGE is not set. Use: make watcher-restart-challenge CHALLENGE=challenge-name)
+endif
+	${SUDO} ${BIN} gzcli --watcher-client restart --watcher-challenge $(CHALLENGE)
+
+watcher-stop-script:
+ifndef CHALLENGE
+	$(error CHALLENGE is not set. Use: make watcher-stop-script CHALLENGE=challenge-name SCRIPT=script-name)
+endif
+ifndef SCRIPT
+	$(error SCRIPT is not set. Use: make watcher-stop-script CHALLENGE=challenge-name SCRIPT=script-name)  
+endif
+	${SUDO} ${BIN} gzcli --watcher-client stop-script --watcher-challenge $(CHALLENGE) --watcher-script $(SCRIPT)
+
+watcher-challenge-executions:
+ifndef CHALLENGE
+	$(error CHALLENGE is not set. Use: make watcher-challenge-executions CHALLENGE=challenge-name)
+endif
+	${SUDO} ${BIN} gzcli --watcher-client executions --watcher-challenge $(CHALLENGE) --watcher-limit 50
+
 register-all-user:
 	${SUDO} URL=${PUBLIC_URL} ${BIN} gzcli --create-teams ${CSV}
 
@@ -107,6 +154,21 @@ help:
 	@echo "  watch-stop          - Stop the watcher"
 	@echo "  watch-status        - Check watcher status"
 	@echo "  watch-logs          - View watcher logs"
+	@echo ""
+	@echo "Watcher Client (interact with running daemon):"
+	@echo "  watcher-status      - Get watcher daemon status"
+	@echo "  watcher-list        - List watched challenges"
+	@echo "  watcher-logs        - View database logs (last 50)"
+	@echo "  watcher-logs-all    - View database logs (last 200)"
+	@echo "  watcher-live-logs   - Stream live database logs (2s refresh)"
+	@echo "  watcher-live-logs-fast - Stream live database logs (1s refresh)"
+	@echo "  watcher-metrics     - View script execution metrics"
+	@echo "  watcher-executions  - View script execution history"
+	@echo ""
+	@echo "Watcher Challenge Operations:"
+	@echo "  watcher-restart-challenge CHALLENGE=name - Restart challenge"
+	@echo "  watcher-stop-script CHALLENGE=name SCRIPT=name - Stop interval script"
+	@echo "  watcher-challenge-executions CHALLENGE=name - View challenge executions"
 	@echo ""
 	@echo "User Management:"
 	@echo "  register-all-user   - Register users from CSV"
