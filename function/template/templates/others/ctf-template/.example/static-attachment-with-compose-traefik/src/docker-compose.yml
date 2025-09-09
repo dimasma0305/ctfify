@@ -10,6 +10,7 @@ services:
       - "traefik.tcp.routers.static_attachment.rule=HostSNI(`static-attachment.category.{{.PublicEntry}}`)"
       - "traefik.tcp.routers.static_attachment.tls=true"
       - "traefik.tcp.services.static_attachment.loadbalancer.server.port=8011"
+      - "traefik.tcp.routers.static_attachment.tls.certresolver=letsencrypt"
     deploy:
       resources:
         limits:
