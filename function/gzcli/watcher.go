@@ -1054,6 +1054,15 @@ func (w *Watcher) fullRedeployChallenge(challenge ChallengeYaml) error {
 		}
 	}
 
+	// Run restart script if exists (typically for maintenance/monitoring)
+	if scriptValue, exists := challenge.Scripts["restart"]; exists && scriptValue.GetCommand() != "" {
+		log.InfoH3("Running restart script for %s", challenge.Name)
+		if err := w.runScriptWithIntervalSupport(challenge, "restart"); err != nil {
+			log.Error("Restart script failed for %s: %v", challenge.Name, err)
+			// Don't return error for restart script failure - it's not critical for deployment
+		}
+	}
+
 	return nil
 }
 
@@ -1301,6 +1310,15 @@ func (w *Watcher) syncAndDeployNewChallenge(challenge ChallengeYaml) {
 		if err := w.runScriptWithIntervalSupport(challenge, "start"); err != nil {
 			log.Error("❌ Start script failed for %s: %v", challenge.Name, err)
 			return
+		}
+	}
+
+	// Run restart script if exists (typically for maintenance/monitoring)
+	if scriptValue, exists := challenge.Scripts["restart"]; exists && scriptValue.GetCommand() != "" {
+		log.InfoH3("Running restart script for %s", challenge.Name)
+		if err := w.runScriptWithIntervalSupport(challenge, "restart"); err != nil {
+			log.Error("⚠️  Restart script failed for %s: %v", challenge.Name, err)
+			// Don't return error for restart script failure - it's not critical for deployment
 		}
 	}
 

@@ -19,3 +19,6 @@ provide: "./dist"
 scripts:
     start: cd src && docker compose -p {{.slug}} up --build -d
     stop: cd src && docker compose -p {{.slug}} down --volumes
+    restart:
+        interval: 5m
+        execute: cd src && docker compose -p {{.slug}} restart
