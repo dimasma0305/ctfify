@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/flate"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -802,11 +803,28 @@ func runScript(challengeConf ChallengeYaml, script string) error {
 	if shell == "" {
 		shell = "/bin/sh"
 	}
-	if challengeConf.Scripts[script] == "" {
+
+	scriptValue, exists := challengeConf.Scripts[script]
+	if !exists {
 		return nil
 	}
-	log.InfoH2("Running:\n%s", challengeConf.Scripts[script])
-	return runShell(challengeConf.Scripts[script], challengeConf.Cwd)
+
+	command := scriptValue.GetCommand()
+	if command == "" {
+		return nil
+	}
+
+	// Check if script has an interval configured
+	if scriptValue.HasInterval() {
+		interval := scriptValue.GetInterval()
+		log.InfoH2("Warning: Interval script '%s' with interval %v detected", script, interval)
+		log.InfoH3("Interval scripts are only supported when using the watcher. Running once instead.")
+		log.InfoH3("Script command: %s", command)
+	}
+
+	// Run simple one-time script
+	log.InfoH2("Running:\n%s", command)
+	return runShell(command, challengeConf.Cwd)
 }
 
 func runShell(script string, cwd string) error {
@@ -815,4 +833,27 @@ func runShell(script string, cwd string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// runIntervalScript executes a script at regular intervals with context cancellation
+func runIntervalScript(ctx context.Context, challengeConf ChallengeYaml, scriptName, command string, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	log.InfoH3("Started interval script '%s' for challenge '%s' with interval %v", scriptName, challengeConf.Name, interval)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.InfoH3("Stopped interval script '%s' for challenge '%s' (context cancelled)", scriptName, challengeConf.Name)
+			return
+		case <-ticker.C:
+			log.InfoH3("Executing interval script '%s' for challenge '%s'", scriptName, challengeConf.Name)
+			if err := runShell(command, challengeConf.Cwd); err != nil {
+				log.Error("Interval script '%s' failed for challenge '%s': %v", scriptName, challengeConf.Name, err)
+			} else {
+				log.InfoH3("Interval script '%s' completed successfully for challenge '%s'", scriptName, challengeConf.Name)
+			}
+		}
+	}
 }

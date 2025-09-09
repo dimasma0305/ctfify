@@ -42,6 +42,8 @@ type Watcher struct {
 	watchedChallengeDirs map[string]string        // challengeName -> cwd
 	challengeConfigs     map[string]ChallengeYaml // challengeName -> full config (for scripts)
 	challengeConfigsMu   sync.RWMutex
+	intervalScripts      map[string]map[string]context.CancelFunc // challengeName -> scriptName -> cancelFunc
+	intervalScriptsMu    sync.RWMutex
 }
 
 type WatcherConfig struct {
@@ -117,6 +119,7 @@ func NewWatcher(gz *GZ) (*Watcher, error) {
 		watchedChallenges:    make(map[string]bool),
 		watchedChallengeDirs: make(map[string]string),
 		challengeConfigs:     make(map[string]ChallengeYaml),
+		intervalScripts:      make(map[string]map[string]context.CancelFunc),
 	}, nil
 }
 
@@ -252,6 +255,19 @@ func (w *Watcher) startWatcher() error {
 // Stop stops the file watcher
 func (w *Watcher) Stop() error {
 	log.Info("Stopping file watcher...")
+
+	// Stop all interval scripts first
+	w.intervalScriptsMu.Lock()
+	for challengeName := range w.intervalScripts {
+		log.InfoH3("Stopping all interval scripts for challenge '%s'", challengeName)
+		for scriptName, cancel := range w.intervalScripts[challengeName] {
+			log.InfoH3("  - Stopping interval script '%s'", scriptName)
+			cancel()
+		}
+	}
+	w.intervalScripts = make(map[string]map[string]context.CancelFunc) // Clear all
+	w.intervalScriptsMu.Unlock()
+
 	w.cancel()
 
 	// Wait for all goroutines to finish
@@ -553,10 +569,13 @@ func (w *Watcher) undeployAndRemoveChallenge(challenge ChallengeYaml) {
 
 	log.InfoH2("🔻 Undeploying and removing challenge: %s", challenge.Name)
 
+	// Stop all interval scripts for this challenge first
+	w.stopAllIntervalScripts(challenge.Name)
+
 	// Run stop script if available
-	if _, exists := challenge.Scripts["stop"]; exists {
+	if scriptValue, exists := challenge.Scripts["stop"]; exists && scriptValue.GetCommand() != "" {
 		log.InfoH3("Running stop script for %s", challenge.Name)
-		if err := runScript(challenge, "stop"); err != nil {
+		if err := w.runScriptWithIntervalSupport(challenge, "stop"); err != nil {
 			log.Error("Stop script failed for %s: %v", challenge.Name, err)
 		}
 	}
@@ -1014,9 +1033,9 @@ func (w *Watcher) fullRedeployChallenge(challenge ChallengeYaml) error {
 	log.InfoH2("Starting full redeployment of challenge: %s", challenge.Name)
 
 	// Run stop script if exists
-	if _, exists := challenge.Scripts["stop"]; exists {
+	if scriptValue, exists := challenge.Scripts["stop"]; exists && scriptValue.GetCommand() != "" {
 		log.InfoH3("Running stop script for %s", challenge.Name)
-		if err := runScript(challenge, "stop"); err != nil {
+		if err := w.runScriptWithIntervalSupport(challenge, "stop"); err != nil {
 			log.Error("Stop script failed for %s: %v", challenge.Name, err)
 			// Continue anyway - maybe the service wasn't running
 		}
@@ -1028,9 +1047,9 @@ func (w *Watcher) fullRedeployChallenge(challenge ChallengeYaml) error {
 	}
 
 	// Run start script if exists
-	if _, exists := challenge.Scripts["start"]; exists {
+	if scriptValue, exists := challenge.Scripts["start"]; exists && scriptValue.GetCommand() != "" {
 		log.InfoH3("Running start script for %s", challenge.Name)
-		if err := runScript(challenge, "start"); err != nil {
+		if err := w.runScriptWithIntervalSupport(challenge, "start"); err != nil {
 			return fmt.Errorf("start script failed: %w", err)
 		}
 	}
@@ -1074,6 +1093,99 @@ func (w *Watcher) getPendingUpdate(challengeName string) (string, bool) {
 		log.DebugH3("Retrieved pending update for %s: %s", challengeName, filePath)
 	}
 	return filePath, exists
+}
+
+// startIntervalScript starts an interval script for a challenge with proper tracking
+func (w *Watcher) startIntervalScript(challengeName, scriptName string, challenge ChallengeYaml, command string, interval time.Duration) {
+	w.intervalScriptsMu.Lock()
+	defer w.intervalScriptsMu.Unlock()
+
+	// Initialize map for challenge if it doesn't exist
+	if w.intervalScripts[challengeName] == nil {
+		w.intervalScripts[challengeName] = make(map[string]context.CancelFunc)
+	}
+
+	// Stop existing interval script if running
+	if cancel, exists := w.intervalScripts[challengeName][scriptName]; exists {
+		log.InfoH3("Stopping existing interval script '%s' for challenge '%s'", scriptName, challengeName)
+		cancel()
+	}
+
+	// Create new context for this interval script
+	ctx, cancel := context.WithCancel(w.ctx)
+	w.intervalScripts[challengeName][scriptName] = cancel
+
+	// Start the interval script in a goroutine
+	go runIntervalScript(ctx, challenge, scriptName, command, interval)
+}
+
+// stopIntervalScript stops a specific interval script for a challenge
+func (w *Watcher) stopIntervalScript(challengeName, scriptName string) {
+	w.intervalScriptsMu.Lock()
+	defer w.intervalScriptsMu.Unlock()
+
+	if challengeScripts, exists := w.intervalScripts[challengeName]; exists {
+		if cancel, exists := challengeScripts[scriptName]; exists {
+			log.InfoH3("Stopping interval script '%s' for challenge '%s'", scriptName, challengeName)
+			cancel()
+			delete(challengeScripts, scriptName)
+
+			// Clean up empty challenge map
+			if len(challengeScripts) == 0 {
+				delete(w.intervalScripts, challengeName)
+			}
+		}
+	}
+}
+
+// stopAllIntervalScripts stops all interval scripts for a challenge
+func (w *Watcher) stopAllIntervalScripts(challengeName string) {
+	w.intervalScriptsMu.Lock()
+	defer w.intervalScriptsMu.Unlock()
+
+	if challengeScripts, exists := w.intervalScripts[challengeName]; exists {
+		log.InfoH3("Stopping all interval scripts for challenge '%s'", challengeName)
+		for scriptName, cancel := range challengeScripts {
+			log.InfoH3("  - Stopping interval script '%s'", scriptName)
+			cancel()
+		}
+		delete(w.intervalScripts, challengeName)
+	}
+}
+
+// runScriptWithIntervalSupport runs a script with proper interval script lifecycle management
+func (w *Watcher) runScriptWithIntervalSupport(challengeConf ChallengeYaml, script string) error {
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+
+	scriptValue, exists := challengeConf.Scripts[script]
+	if !exists {
+		return nil
+	}
+
+	command := scriptValue.GetCommand()
+	if command == "" {
+		return nil
+	}
+
+	// Check if script has an interval configured
+	if scriptValue.HasInterval() {
+		interval := scriptValue.GetInterval()
+		log.InfoH2("Starting interval script '%s' with interval %v", script, interval)
+		log.InfoH3("Script command: %s", command)
+
+		// Use watcher's interval script management
+		w.startIntervalScript(challengeConf.Name, script, challengeConf, command, interval)
+		return nil
+	}
+
+	// For non-interval scripts, stop any existing interval script with the same name
+	w.stopIntervalScript(challengeConf.Name, script)
+
+	// Run simple one-time script
+	log.InfoH2("Running:\n%s", command)
+	return runShell(command, challengeConf.Cwd)
 }
 
 // newChallengeCheckLoop periodically checks for new challenges
@@ -1184,9 +1296,9 @@ func (w *Watcher) syncAndDeployNewChallenge(challenge ChallengeYaml) {
 	log.InfoH2("🚀 Starting deployment for new challenge: %s", challenge.Name)
 
 	// Run start script if exists
-	if _, exists := challenge.Scripts["start"]; exists {
+	if scriptValue, exists := challenge.Scripts["start"]; exists && scriptValue.GetCommand() != "" {
 		log.InfoH3("Running start script for %s", challenge.Name)
-		if err := runScript(challenge, "start"); err != nil {
+		if err := w.runScriptWithIntervalSupport(challenge, "start"); err != nil {
 			log.Error("❌ Start script failed for %s: %v", challenge.Name, err)
 			return
 		}

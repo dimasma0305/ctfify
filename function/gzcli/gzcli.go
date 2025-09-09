@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/dimasma0305/ctfify/function/gzcli/gzapi"
 	"github.com/dimasma0305/ctfify/function/log"
@@ -29,20 +30,83 @@ type Container struct {
 	EnableTrafficCapture bool   `yaml:"enableTrafficCapture"`
 }
 
+// ScriptConfig represents a script configuration that can be either a simple string
+// or a complex object with interval and execute parameters
+type ScriptConfig struct {
+	Execute  string        `yaml:"execute,omitempty"`
+	Interval time.Duration `yaml:"interval,omitempty"`
+}
+
+// ScriptValue holds either a simple command string or a complex ScriptConfig
+type ScriptValue struct {
+	Simple  string
+	Complex *ScriptConfig
+}
+
+// UnmarshalYAML implements custom YAML unmarshaling for ScriptValue
+func (sv *ScriptValue) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// First try to unmarshal as a simple string
+	var simpleScript string
+	if err := unmarshal(&simpleScript); err == nil {
+		sv.Simple = simpleScript
+		sv.Complex = nil
+		return nil
+	}
+
+	// If that fails, try to unmarshal as a complex object
+	var complexScript ScriptConfig
+	if err := unmarshal(&complexScript); err == nil {
+		sv.Simple = ""
+		sv.Complex = &complexScript
+		return nil
+	} else {
+		return fmt.Errorf("script value must be either a string or an object with 'execute' and 'interval' fields")
+	}
+}
+
+// IsSimple returns true if this is a simple string command
+func (sv *ScriptValue) IsSimple() bool {
+	return sv.Simple != ""
+}
+
+// GetCommand returns the command to execute
+func (sv *ScriptValue) GetCommand() string {
+	if sv.IsSimple() {
+		return sv.Simple
+	}
+	if sv.Complex != nil {
+		return sv.Complex.Execute
+	}
+	return ""
+}
+
+// GetInterval returns the execution interval for complex scripts
+func (sv *ScriptValue) GetInterval() time.Duration {
+	if sv.Complex != nil {
+		return sv.Complex.Interval
+	}
+	return 0
+}
+
+// HasInterval returns true if this script has an interval configured
+func (sv *ScriptValue) HasInterval() bool {
+	return sv.Complex != nil && sv.Complex.Interval > 0
+}
+
 type ChallengeYaml struct {
-	Name        string            `yaml:"name"`
-	Author      string            `yaml:"author"`
-	Description string            `yaml:"description"`
-	Flags       []string          `yaml:"flags"`
-	Value       int               `yaml:"value"`
-	Provide     *string           `yaml:"provide,omitempty"`
-	Visible     *bool             `yaml:"visible"`
-	Type        string            `yaml:"type"`
-	Hints       []string          `yaml:"hints"`
-	Container   Container         `yaml:"container"`
-	Scripts     map[string]string `yaml:"scripts"`
-	Category    string            `yaml:"-"`
-	Cwd         string            `yaml:"-"`
+	Name        string                 `yaml:"name"`
+	Author      string                 `yaml:"author"`
+	Description string                 `yaml:"description"`
+	Flags       []string               `yaml:"flags"`
+	Value       int                    `yaml:"value"`
+	Provide     *string                `yaml:"provide,omitempty"`
+	Visible     *bool                  `yaml:"visible"`
+	Type        string                 `yaml:"type"`
+	Hints       []string               `yaml:"hints"`
+	Container   Container              `yaml:"container"`
+	Scripts     map[string]ScriptValue `yaml:"scripts"`
+	Category    string                 `yaml:"-"`
+	Cwd         string                 `yaml:"-"`
 }
 
 type Standing struct {
@@ -268,7 +332,7 @@ func RunScripts(script string) error {
 
 	// Distribute work
 	for _, conf := range challengesConf {
-		if _, ok := conf.Scripts[script]; ok {
+		if scriptValue, ok := conf.Scripts[script]; ok && scriptValue.GetCommand() != "" {
 			workChan <- conf
 		}
 	}
