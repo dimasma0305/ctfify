@@ -117,6 +117,12 @@ func GetConfig(api *gzapi.GZAPI) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("errror parsing appsettings.json: %s", err)
 	}
+
+	// Ensure the GZAPI client is set if provided to prevent nil pointer dereference
+	if api != nil {
+		config.Event.CS = api
+	}
+
 	return &config, nil
 }
 
