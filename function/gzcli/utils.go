@@ -473,9 +473,6 @@ func syncChallenge(config *Config, challengeConf ChallengeYaml, challenges []gza
 	var challengeData *gzapi.Challenge
 	var err error
 
-	// Ensure the GZAPI client is set to prevent nil pointer dereference
-	config.Event.CS = api
-
 	log.InfoH2("Starting sync for challenge: %s (Type: %s, Category: %s)", challengeConf.Name, challengeConf.Type, challengeConf.Category)
 
 	// Check existence using the original challenges list first to avoid unnecessary API calls
