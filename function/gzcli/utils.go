@@ -819,6 +819,10 @@ func runScript(challengeConf ChallengeYaml, script string) error {
 		return nil
 	}
 
+	if challengeConf.Dashboard != nil {
+		return nil
+	}
+
 	command := scriptValue.GetCommand()
 	if command == "" {
 		return nil

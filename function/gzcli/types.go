@@ -132,3 +132,10 @@ type Label struct {
 	Key   string `json:"Key"`
 	Value string `json:"Value"`
 }
+
+type Dashboard struct {
+	Compose                  string `yaml:"compose"`
+	ChallengeDurationMinutes int    `yaml:"challengeDurationMinutes"`
+	ResetTimerMinutes        int    `yaml:"resetTimerMinutes"`
+	RestartCooldownMinutes   int    `yaml:"restartCooldownMinutes"`
+}

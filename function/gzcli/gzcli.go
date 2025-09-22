@@ -105,6 +105,7 @@ type ChallengeYaml struct {
 	Hints       []string               `yaml:"hints"`
 	Container   Container              `yaml:"container"`
 	Scripts     map[string]ScriptValue `yaml:"scripts"`
+	Dashboard   *Dashboard             `yaml:"dashboard,omitempty"`
 	Category    string                 `yaml:"-"`
 	Cwd         string                 `yaml:"-"`
 }
