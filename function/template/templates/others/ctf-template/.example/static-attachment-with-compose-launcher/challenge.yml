@@ -5,7 +5,7 @@ author: "dimas"
 description: |
   Example static attachment
 
-  Connect: nc {{ .host }} 8011
+  Start challenge from: https://ctfify.1pc.tf/challenge/{{.slug}}
 
 type: "StaticAttachment"
 value: 1000
