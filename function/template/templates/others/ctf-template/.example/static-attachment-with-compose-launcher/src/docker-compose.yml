@@ -1,0 +1,14 @@
+services:
+  example:
+    build: .
+    restart: on-failure
+    ports:
+      - 8011:8011
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "256M"
+        reservations:
+          cpus: "0.25"
+          memory: "128M"
